@@ -38,7 +38,7 @@ window.registerExtension('sbomviz/project', function (options) {
       '.sbomviz *, .sbomviz *::before, .sbomviz *::after { box-sizing: border-box; }',
       '.sbomviz-section { background: #fff; border: 1px solid #ddd; border-radius: 4px;',
       '  padding: 12px; margin-bottom: 16px; min-width: 0; }',
-      '.sbomviz-title { color: #baccde; margin: 16px 0 8px; font-size: 1.1em; font-weight: 600; }',
+      '.sbomviz-title { color: #3e4357; margin: 16px 0 8px; font-size: 1.1em; font-weight: 600; }',
       '.sbomviz-loading { text-align: center; padding: 40px 0; color: #666; }',
       '.sbomviz-error { background: #f8d7da; color: #721c24; border-radius: 4px; padding: 12px 16px; }',
       /* chart — height relative to viewport so it fits without fixed overflow */
@@ -378,15 +378,15 @@ function chartName(c) {
   });
   if (vulns.length) {
     n += '<br><br>Vulnerabilities:<br>';
-    vulns.slice(0, 10).forEach(function (v) { n += '<li>' + escHtml(v.id) + ' (' + escHtml(capitalize(v.severity)) + ')</li>'; });
-    if (vulns.length > 10) n += '<li>...</li>';
+    vulns.slice(0, 10).forEach(function (v) { n += '<li style="margin-left:1.2em">' + escHtml(v.id) + ' (' + escHtml(capitalize(v.severity)) + ')</li>'; });
+    if (vulns.length > 10) n += '<li style="margin-left:1.2em">...</li>';
   }
   var lics = Array.from(c.license);
   if (lics.length) {
     if (!vulns.length) n += '<br>';
     n += '<br>License:<br>';
-    lics.slice(0, 10).forEach(function (l) { n += '<li>' + escHtml(l) + '</li>'; });
-    if (lics.length > 10) n += '<li>...</li>';
+    lics.slice(0, 10).forEach(function (l) { n += '<li style="margin-left:1.2em">' + escHtml(l) + '</li>'; });
+    if (lics.length > 10) n += '<li style="margin-left:1.2em">...</li>';
   }
   return n;
 }
