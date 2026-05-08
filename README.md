@@ -6,6 +6,12 @@ For each project it fetches the CycloneDX SBOM and dependency risk (CVE) data fr
 
 ![Build](https://github.com/mathiasconradt/sonarqube-cdx-sunshine-plugin/actions/workflows/build.yml/badge.svg)
 
+## Screenshots
+
+![Sunburst dependency chart with vulnerability colors](docs/screenshot1.png)
+
+![Component tooltip showing CVEs and license](docs/screenshot2.png)
+
 ## Requirements
 
 - SonarQube 2026.x (uses plugin API 12.x)
