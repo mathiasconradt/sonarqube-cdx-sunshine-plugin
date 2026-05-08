@@ -1,0 +1,1 @@
+# sonarqube-sbom-visualization-plugin
