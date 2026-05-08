@@ -4,7 +4,7 @@ A SonarQube plugin that brings the [CycloneDX Sunshine](https://github.com/Cyclo
 
 For each project it fetches the CycloneDX SBOM and dependency risk (CVE) data from SonarQube's SCA API, merges the vulnerability data into the SBOM, and renders the full Sunshine interactive visualization — sunburst dependency chart, components table, and vulnerabilities table — inside SonarQube.
 
-![Build](https://github.com/mathiasconradt/sonarqube-sbom-visualization-plugin/actions/workflows/build.yml/badge.svg)
+![Build](https://github.com/mathiasconradt/sonarqube-cdx-sunshine-plugin/actions/workflows/build.yml/badge.svg)
 
 ## Requirements
 
