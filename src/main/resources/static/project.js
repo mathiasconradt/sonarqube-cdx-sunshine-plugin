@@ -61,6 +61,7 @@ window.registerExtension('sbomviz/project', function (options) {
       '.sv-low      { background: #fccd58; color: #333 !important; }',
       '.sv-info     { background: #7dd491; color: #333 !important; }',
       '.sv-transitive { background: #9fc5e8; color: #333 !important; }',
+      '.sv-direct    { background: #4a9eff; color: #fff; }',
       '.sv-clean    { background: #bcbcbc; color: #333 !important; }',
       '.sv-license  { background: transparent; border: 1px solid #333; color: #333; }',
       '.sv-opaque   { opacity: 0.5; }',
@@ -280,7 +281,8 @@ const STYLES = {
   info:        { color: '#7dd491', borderWidth: 2 },
   clean:       { color: '#bcbcbc', borderWidth: 2 },
   unknown:     { color: '#7dd491', borderWidth: 2 },
-  transitive:  { color: '#9fc5e8', borderWidth: 2 }
+  transitive:  { color: '#9fc5e8', borderWidth: 2 },
+  direct:      { color: '#4a9eff', borderWidth: 2 }
 };
 
 function badgeClass(sev, hasTransitive) {
@@ -505,8 +507,9 @@ function purgeComponents(components) {
 
 // ─── echarts sunburst data ────────────────────────────────────────────────────
 
-function determineStyle(c) {
+function determineStyle(c, isDirect) {
   if (c.max_vulnerability_severity !== 'clean') return STYLES[c.max_vulnerability_severity] || STYLES.clean;
+  if (isDirect) return STYLES.direct;   // direct dep with no direct vuln → dedicated color
   if (c.has_transitive_vulnerabilities) return STYLES.transitive;
   return STYLES.clean;
 }
@@ -535,7 +538,8 @@ function addTransitive(comp, list) {
   list.forEach(function (v) { if (!vulnUniq(comp.transitive_vulnerabilities, v)) comp.transitive_vulnerabilities.push(v); });
 }
 
-function getChildren(components, comp, parents) {
+function getChildren(components, comp, parents, depth) {
+  const isDirect = depth === 0;
   const children = [];
   let value = 0;
   let hasVuln = comp.vulnerabilities.length > 0;
@@ -544,10 +548,10 @@ function getChildren(components, comp, parents) {
     const child = components[childRef];
     child.visited = true;
     if (parents.includes(childRef)) {
-      children.push({ name: chartName(child), children: [], value: 1, itemStyle: determineStyle(child) });
+      children.push({ name: chartName(child), children: [], value: 1, itemStyle: determineStyle(child, isDirect) });
       value += 1; return;
     }
-    const r = getChildren(components, child, parents.concat([childRef]));
+    const r = getChildren(components, child, parents.concat([childRef]), depth + 1);
     if (child.vulnerabilities.length || child.has_transitive_vulnerabilities || r.hasVuln) {
       comp.has_transitive_vulnerabilities = true;
       addTransitive(comp, child.vulnerabilities);
@@ -555,7 +559,7 @@ function getChildren(components, comp, parents) {
       hasVuln = true;
     }
     value += r.value;
-    children.push({ name: chartName(child), children: r.children, value: r.value, itemStyle: determineStyle(child) });
+    children.push({ name: chartName(child), children: r.children, value: r.value, itemStyle: determineStyle(child, isDirect) });
   });
   if (value === 0) value = 1;
   return { children: children, value: value, hasVuln: hasVuln };
@@ -563,7 +567,7 @@ function getChildren(components, comp, parents) {
 
 function addRoot(components, comp, data, ref) {
   comp.visited = true;
-  const r = getChildren(components, comp, [ref]);
+  const r = getChildren(components, comp, [ref], 0);
   if (r.hasVuln) {
     comp.has_transitive_vulnerabilities = true;
     comp.depends_on.forEach(function (cr) {
@@ -572,7 +576,11 @@ function addRoot(components, comp, data, ref) {
       addTransitive(comp, components[cr].transitive_vulnerabilities);
     });
   }
-  data.push({ name: chartName(comp), children: r.children, value: r.value, itemStyle: determineStyle(comp) });
+  // root node: never show as transitive-affected (it IS the project, not a dependency)
+  const rootStyle = comp.max_vulnerability_severity === 'clean'
+    ? STYLES.clean
+    : (STYLES[comp.max_vulnerability_severity] || STYLES.clean);
+  data.push({ name: chartName(comp), children: r.children, value: r.value, itemStyle: rootStyle });
 }
 
 function buildEchartsData(components) {
@@ -838,7 +846,8 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     '      <span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>',
     '      <span><span class="sv-badge sv-low">&nbsp;</span> Low</span>',
     '      <span><span class="sv-badge sv-info">&nbsp;</span> Info</span>',
-    '      <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitive</span>',
+    '      <span><span class="sv-badge sv-direct">&nbsp;</span> Direct dep</span>',
+    '      <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitively affected</span>',
     '      <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
     '    </div>',
     '    <span class="sv-generated-at">' +
@@ -851,6 +860,9 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     '    <label><input type="radio" name="sbomvizChart" value="all" checked> Show all components</label>',
     '    <label><input type="radio" name="sbomvizChart" value="vuln"> Show only vulnerable components</label>',
     '  </div>',
+    '  <p style="font-size:11px;color:#888;margin:4px 0 8px;">',
+    '    Click a segment to drill into its dependencies. The dark blue center circle that appears marks your current focus — click it to go back up.',
+    '  </p>',
     '  <div id="sbomviz-chart-all" class="sbomviz-chart"></div>',
     '  <div id="sbomviz-chart-vuln" class="sbomviz-chart" style="display:none"></div>',
     '</div>',
