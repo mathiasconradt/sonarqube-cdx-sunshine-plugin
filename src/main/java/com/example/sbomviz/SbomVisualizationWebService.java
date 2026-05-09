@@ -27,6 +27,10 @@ import org.sonar.api.server.ws.WebService;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -34,9 +38,15 @@ import java.util.Map;
 public class SbomVisualizationWebService implements WebService {
 
     private final Configuration configuration;
+    private final Path cacheDir;
 
     public SbomVisualizationWebService(Configuration configuration) {
         this.configuration = configuration;
+        this.cacheDir = Paths.get(System.getProperty("java.io.tmpdir"), "sbomviz-cache");
+        try {
+            Files.createDirectories(cacheDir);
+        } catch (IOException ignored) {
+        }
     }
 
     @Override
@@ -54,6 +64,9 @@ public class SbomVisualizationWebService implements WebService {
         dataAction.createParam("branch")
             .setRequired(false)
             .setDescription("Branch name (defaults to main branch)");
+        dataAction.createParam("noCache")
+            .setRequired(false)
+            .setDescription("Skip cache and force regeneration");
 
         NewAction branchesAction = controller.createAction("branches")
             .setDescription("List branches for a project")
@@ -75,16 +88,12 @@ public class SbomVisualizationWebService implements WebService {
             return;
         }
 
-        int port = configuration.getInt("sonar.web.port").orElse(9000);
-        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
-        String baseUrl = "http://localhost:" + port + ctx;
-
+        String baseUrl = baseUrl();
         try {
             String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
             String branchesJson = fetchUrl(
                 baseUrl + "/api/project_branches/list?project=" + encodedKey,
-                token,
-                null
+                token, null
             );
             response.stream().setMediaType("application/json");
             response.stream().output().write(branchesJson.getBytes(StandardCharsets.UTF_8));
@@ -96,6 +105,7 @@ public class SbomVisualizationWebService implements WebService {
     private void getData(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam("projectKey");
         String branch = request.param("branch");
+        boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
         String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
 
         if (token.isEmpty()) {
@@ -103,9 +113,8 @@ public class SbomVisualizationWebService implements WebService {
             return;
         }
 
-        int port = configuration.getInt("sonar.web.port").orElse(9000);
-        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
-        String baseUrl = "http://localhost:" + port + ctx;
+        String baseUrl = baseUrl();
+        Gson gson = new GsonBuilder().serializeNulls().create();
 
         try {
             String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
@@ -113,34 +122,105 @@ public class SbomVisualizationWebService implements WebService {
                 ? "&branch=" + URLEncoder.encode(branch, StandardCharsets.UTF_8)
                 : "";
 
+            // check last analysis date
+            Instant lastAnalysis = fetchLastAnalysisDate(baseUrl, encodedKey, branchSuffix, token, gson);
+
+            // check cache (skip if noCache=true)
+            Path cacheFile = cacheFile(projectKey, branch);
+            if (!noCache && lastAnalysis != null && Files.exists(cacheFile)) {
+                try {
+                    String cached = new String(Files.readAllBytes(cacheFile), StandardCharsets.UTF_8);
+                    JsonObject cachedObj = gson.fromJson(cached, JsonObject.class);
+                    if (cachedObj.has("generatedAt")) {
+                        Instant cachedAt = Instant.parse(cachedObj.get("generatedAt").getAsString());
+                        if (!cachedAt.isBefore(lastAnalysis)) {
+                            // cache is fresh
+                            response.stream().setMediaType("application/json");
+                            response.stream().output().write(cached.getBytes(StandardCharsets.UTF_8));
+                            return;
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // corrupt cache — fall through to refresh
+                }
+            }
+
+            // fetch fresh data
             String sbomJson = fetchUrl(
                 baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx" + branchSuffix,
-                token,
-                "application/vnd.cyclonedx+json"
+                token, "application/vnd.cyclonedx+json"
             );
-
             String risksJson = fetchUrl(
                 baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey + branchSuffix,
-                token,
-                null
+                token, null
             );
 
-            Gson gson = new GsonBuilder().serializeNulls().create();
             JsonObject sbom = gson.fromJson(sbomJson, JsonObject.class);
             JsonElement risksEl = gson.fromJson(risksJson, JsonElement.class);
-
             JsonArray risks = risksEl.isJsonArray() ? risksEl.getAsJsonArray() : new JsonArray();
             JsonObject enriched = mergeRisksIntoSbom(sbom, risks);
 
+            String generatedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
             JsonObject result = new JsonObject();
             result.add("sbom", enriched);
+            result.addProperty("generatedAt", generatedAt);
+            if (lastAnalysis != null) {
+                result.addProperty("lastAnalysisDate", DateTimeFormatter.ISO_INSTANT.format(lastAnalysis));
+            }
+
+            String resultJson = gson.toJson(result);
+
+            // write to cache
+            try {
+                Files.write(cacheFile, resultJson.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ignored) {
+            }
 
             response.stream().setMediaType("application/json");
-            response.stream().output().write(gson.toJson(result).getBytes(StandardCharsets.UTF_8));
+            response.stream().output().write(resultJson.getBytes(StandardCharsets.UTF_8));
 
         } catch (IOException e) {
             writeJsonError(response, "Failed to fetch data from SonarQube API: " + e.getMessage());
         }
+    }
+
+    private Instant fetchLastAnalysisDate(String baseUrl, String encodedKey, String branchSuffix,
+                                          String token, Gson gson) {
+        try {
+            // branchSuffix uses &branch=... but analyses API uses &branch=... too — strip leading &
+            String branchParam = branchSuffix.isEmpty() ? "" : branchSuffix; // already "&branch=..."
+            String url = baseUrl + "/api/project_analyses/search?project=" + encodedKey
+                + branchParam + "&ps=1";
+            String json = fetchUrl(url, token, null);
+            JsonObject obj = gson.fromJson(json, JsonObject.class);
+            if (obj.has("analyses")) {
+                JsonArray analyses = obj.getAsJsonArray("analyses");
+                if (analyses.size() > 0) {
+                    String date = analyses.get(0).getAsJsonObject().get("date").getAsString();
+                    // SQ returns "+0000" (no colon); try ISO first, then pattern-based fallback
+                    try {
+                        return Instant.from(DateTimeFormatter.ISO_OFFSET_DATE_TIME.parse(date));
+                    } catch (Exception e) {
+                        return OffsetDateTime.parse(date,
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ")).toInstant();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private Path cacheFile(String projectKey, String branch) {
+        String safeName = (projectKey + "_" + (branch != null ? branch : "default"))
+            .replaceAll("[^a-zA-Z0-9._-]", "_");
+        return cacheDir.resolve(safeName + ".json");
+    }
+
+    private String baseUrl() {
+        int port = configuration.getInt("sonar.web.port").orElse(9000);
+        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
+        return "http://localhost:" + port + ctx;
     }
 
     private void writeJsonError(Response response, String message) throws IOException {
@@ -162,18 +242,10 @@ public class SbomVisualizationWebService implements WebService {
         }
 
         int code = conn.getResponseCode();
-        if (code == 401) {
-            throw new IOException("Authentication failed (401). Check your SonarQube token in plugin settings.");
-        }
-        if (code == 403) {
-            throw new IOException("Access forbidden (403). Token lacks required permissions.");
-        }
-        if (code == 404) {
-            throw new IOException("Not found (404). Project may not have an SBOM. Ensure SCA is enabled and the project has been analyzed.");
-        }
-        if (code != 200) {
-            throw new IOException("HTTP " + code + " from SonarQube API at " + urlStr);
-        }
+        if (code == 401) throw new IOException("Authentication failed (401). Check your SonarQube token in plugin settings.");
+        if (code == 403) throw new IOException("Access forbidden (403). Token lacks required permissions.");
+        if (code == 404) throw new IOException("Not found (404). Project may not have an SBOM. Ensure SCA is enabled and the project has been analyzed.");
+        if (code != 200) throw new IOException("HTTP " + code + " from SonarQube API at " + urlStr);
 
         try (InputStream is = conn.getInputStream();
              BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
@@ -214,32 +286,24 @@ public class SbomVisualizationWebService implements WebService {
                 }
             }
         }
-
         return sbom;
     }
 
     private JsonObject formatVulnerability(JsonObject risk) {
         JsonObject vuln = new JsonObject();
-
         if (risk.has("vulnerabilityId")) {
             vuln.addProperty("id", risk.get("vulnerabilityId").getAsString());
         }
-
         JsonObject source = new JsonObject();
         source.addProperty("name", "SonarQube");
         vuln.add("source", source);
 
         JsonArray ratings = new JsonArray();
-        String severity = risk.has("riskSeverity")
-            ? mapSeverity(risk.get("riskSeverity").getAsString())
-            : "info";
-
+        String severity = risk.has("riskSeverity") ? mapSeverity(risk.get("riskSeverity").getAsString()) : "info";
         JsonObject rating = new JsonObject();
         rating.addProperty("severity", severity);
         rating.addProperty("method", "CVSSv3");
-        if (risk.has("cvssScore")) {
-            rating.addProperty("score", risk.get("cvssScore").getAsDouble());
-        }
+        if (risk.has("cvssScore")) rating.addProperty("score", risk.get("cvssScore").getAsDouble());
         ratings.add(rating);
         vuln.add("ratings", ratings);
 
@@ -248,21 +312,12 @@ public class SbomVisualizationWebService implements WebService {
             for (JsonElement cweEl : risk.getAsJsonArray("cweIds")) {
                 String cwe = cweEl.getAsString();
                 if (cwe.contains("-")) {
-                    try {
-                        cwes.add(Integer.parseInt(cwe.split("-")[1]));
-                    } catch (NumberFormatException ignored) {
-                    }
+                    try { cwes.add(Integer.parseInt(cwe.split("-")[1])); } catch (NumberFormatException ignored) {}
                 }
             }
-            if (cwes.size() > 0) {
-                vuln.add("cwes", cwes);
-            }
+            if (cwes.size() > 0) vuln.add("cwes", cwes);
         }
-
-        if (risk.has("riskTitle")) {
-            vuln.addProperty("description", risk.get("riskTitle").getAsString());
-        }
-
+        if (risk.has("riskTitle")) vuln.addProperty("description", risk.get("riskTitle").getAsString());
         return vuln;
     }
 

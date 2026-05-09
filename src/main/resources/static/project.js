@@ -88,7 +88,19 @@ window.registerExtension('sbomviz/project', function (options) {
       '.sv-branch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }',
       '.sv-branch-bar label { font-weight: 600; color: #3e4357; }',
       '.sv-branch-bar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;',
-      '  font-size: 13px; background: #fff; cursor: pointer; }'
+      '  font-size: 13px; background: #fff; cursor: pointer; }',
+      '.sv-refresh-btn { margin-left: auto; padding: 4px 12px; font-size: 12px; cursor: pointer;',
+      '  border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #3e4357; }',
+      '.sv-refresh-btn:hover { background: #f0f0f0; }',
+      /* spinner */
+      '.sv-spinner { display: inline-block; width: 13px; height: 13px; margin-left: 8px;',
+      '  border: 2px solid #ccc; border-top-color: #888; border-radius: 50%;',
+      '  animation: sv-spin 0.8s linear infinite; vertical-align: middle; }',
+      '@keyframes sv-spin { to { transform: rotate(360deg); } }',
+      /* chart section header row: legend left, timestamp right */
+      '.sv-chart-header { display: flex; align-items: center; justify-content: space-between;',
+      '  flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }',
+      '.sv-generated-at { font-size: 11px; color: #999; white-space: nowrap; }'
     ].join('\n');
     document.head.appendChild(injectedStyle);
   }
@@ -98,7 +110,7 @@ window.registerExtension('sbomviz/project', function (options) {
   el.style.overflowY = 'auto';
   el.style.overflowX = 'hidden';
   el.style.padding   = '16px';
-  el.innerHTML = '<div class="sbomviz"><div class="sbomviz-loading">Loading SBOM data…</div></div>';
+  el.innerHTML = '<div class="sbomviz"><div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div></div>';
 
   // load bundled echarts (served from same origin — allowed by CSP script-src 'self')
   function loadEcharts() {
@@ -117,18 +129,19 @@ window.registerExtension('sbomviz/project', function (options) {
 
   var selectedBranch = null;
 
-  function fetchSbomData(branch) {
+  function fetchSbomData(branch, noCache) {
     var url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
     if (branch) url += '&branch=' + encodeURIComponent(branch);
+    if (noCache) url += '&noCache=true';
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); });
   }
 
-  function loadAndRender(branch) {
+  function loadAndRender(branch, noCache) {
     var vizDiv = document.getElementById('sbomviz-viz');
-    if (vizDiv) vizDiv.innerHTML = '<div class="sbomviz-loading">Loading…</div>';
+    if (vizDiv) vizDiv.innerHTML = '<div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div>';
 
-    Promise.all([loadEcharts(), fetchSbomData(branch)])
+    Promise.all([loadEcharts(), fetchSbomData(branch, noCache)])
       .then(function (results) {
         var data = results[1];
         if (vizDiv) {
@@ -140,7 +153,7 @@ window.registerExtension('sbomviz/project', function (options) {
             vizDiv.innerHTML = '<div class="sbomviz-error">No SBOM data returned.</div>';
             return;
           }
-          renderSunshine(vizDiv, data.sbom, projectKey);
+          renderSunshine(vizDiv, data.sbom, projectKey, data.generatedAt || null, data.lastAnalysisDate || null);
         }
       })
       .catch(function (e) {
@@ -173,12 +186,13 @@ window.registerExtension('sbomviz/project', function (options) {
         branchBarHtml = '<div class="sv-branch-bar">' +
           '<label for="sbomviz-branch-select">Branch:</label>' +
           '<select id="sbomviz-branch-select">' + options + '</select>' +
+          '<button class="sv-refresh-btn" id="sbomviz-refresh-btn">↺ Refresh</button>' +
           '</div>';
       }
 
       el.innerHTML = '<div class="sbomviz">' +
         branchBarHtml +
-        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data…</div></div>' +
+        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div></div>' +
         '</div>';
 
       var select = document.getElementById('sbomviz-branch-select');
@@ -189,12 +203,19 @@ window.registerExtension('sbomviz/project', function (options) {
         });
       }
 
+      var refreshBtn = document.getElementById('sbomviz-refresh-btn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', function () {
+          loadAndRender(selectedBranch, true);
+        });
+      }
+
       loadAndRender(selectedBranch);
     })
     .catch(function () {
       // branches fetch failed — fall back to default branch
       el.innerHTML = '<div class="sbomviz">' +
-        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data…</div></div>' +
+        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div></div>' +
         '</div>';
       loadAndRender(null);
     });
@@ -667,7 +688,7 @@ function paginateTable(tableId) {
 
 // ─── renderer ────────────────────────────────────────────────────────────────
 
-function renderSunshine(el, sbomData, projectName) {
+function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate) {
   var components = parseJsonData(sbomData);
   purgeComponents(components);
 
@@ -737,14 +758,21 @@ function renderSunshine(el, sbomData, projectName) {
 
     // chart section — no heading
     '<div class="sbomviz-section">',
-    '  <div class="sv-legend">',
-    '    <span><span class="sv-badge sv-critical">&nbsp;</span> Critical</span>',
-    '    <span><span class="sv-badge sv-high">&nbsp;</span> High</span>',
-    '    <span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>',
-    '    <span><span class="sv-badge sv-low">&nbsp;</span> Low</span>',
-    '    <span><span class="sv-badge sv-info">&nbsp;</span> Info</span>',
-    '    <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitive</span>',
-    '    <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
+    '  <div class="sv-chart-header">',
+    '    <div class="sv-legend">',
+    '      <span><span class="sv-badge sv-critical">&nbsp;</span> Critical</span>',
+    '      <span><span class="sv-badge sv-high">&nbsp;</span> High</span>',
+    '      <span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>',
+    '      <span><span class="sv-badge sv-low">&nbsp;</span> Low</span>',
+    '      <span><span class="sv-badge sv-info">&nbsp;</span> Info</span>',
+    '      <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitive</span>',
+    '      <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
+    '    </div>',
+    '    <span class="sv-generated-at">' +
+      'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
+      '&ensp;|&ensp;' +
+      'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
+    '</span>',
     '  </div>',
     '  <div class="sbomviz-radio-group">',
     '    <label><input type="radio" name="sbomvizChart" value="all" checked> Show all components</label>',
