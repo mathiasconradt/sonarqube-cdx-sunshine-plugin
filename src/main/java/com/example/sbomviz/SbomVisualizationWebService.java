@@ -301,11 +301,13 @@ public class SbomVisualizationWebService implements WebService {
     private JsonObject mergeRisksIntoSbom(JsonObject sbom, JsonArray risks) {
         Map<String, JsonArray> risksMap = new HashMap<>();
         for (JsonElement el : risks) {
-            if (!el.isJsonObject()) continue;
-            JsonObject risk = el.getAsJsonObject();
-            if (!risk.has("packageUrl")) continue;
-            String purl = risk.get("packageUrl").getAsString();
-            risksMap.computeIfAbsent(purl, k -> new JsonArray()).add(risk);
+            if (el.isJsonObject()) {
+                final JsonObject risk = el.getAsJsonObject();
+                if (risk.has("packageUrl")) {
+                    final String purl = risk.get("packageUrl").getAsString();
+                    risksMap.computeIfAbsent(purl, k -> new JsonArray()).add(risk);
+                }
+            }
         }
 
         if (sbom.has("components")) {

@@ -27,6 +27,7 @@ window.registerExtension('sbomviz/project', function (options) {
   // S6582 — use optional chaining instead of a && a.b
   const projectKey = options.component?.key ||
     new URLSearchParams(globalThis.location.search).get('id');
+  const qualifier = options.component?.qualifier || '';
 
   let injectedStyle = null;
 
@@ -101,12 +102,25 @@ window.registerExtension('sbomviz/project', function (options) {
       /* chart section header row: legend left, timestamp right */
       '.sv-chart-header { display: flex; align-items: center; justify-content: space-between;',
       '  flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }',
-      '.sv-generated-at { font-size: 11px; color: #999; white-space: nowrap; }'
+      '.sv-generated-at { font-size: 11px; color: #999; white-space: nowrap; }',
+      '.sbomviz-notice { background: #d1ecf1; color: #0c5460; border-radius: 4px;',
+      '  padding: 14px 18px; font-size: 14px; margin: 16px; }'
     ].join('\n');
     document.head.appendChild(injectedStyle);
   }
 
   injectStyles();
+
+  // Only available for projects (TRK), not portfolios (VW, SVW) or applications (APP)
+  const PROJECT_QUALIFIERS = ['TRK', 'BRC'];
+  if (qualifier && !PROJECT_QUALIFIERS.includes(qualifier)) {
+    el.innerHTML = '<div class="sbomviz-notice">' +
+      'SBOM Visualization is available for projects only. ' +
+      'Navigate to a project to view the SBOM visualization.' +
+      '</div>';
+    return function () { el.innerHTML = ''; if (injectedStyle) injectedStyle.remove(); };
+  }
+
   // make the extension container itself scroll vertically and not overflow horizontally
   el.style.overflowY = 'auto';
   el.style.overflowX = 'hidden';
@@ -176,7 +190,13 @@ window.registerExtension('sbomviz/project', function (options) {
       });
 
       const defaultBranch = branches.find(function (b) { return b.isMain; });
-      selectedBranch = defaultBranch ? defaultBranch.name : (branches[0] ? branches[0].name : null);
+      if (defaultBranch) {
+        selectedBranch = defaultBranch.name;
+      } else if (branches[0]) {
+        selectedBranch = branches[0].name;
+      } else {
+        selectedBranch = null;
+      }
 
       // S3358 — extracted nested ternary into if/else
       let branchBarHtml = '';
@@ -307,56 +327,40 @@ function extractRatingByScore(rating) {
   return null;
 }
 
-function parseVulnerabilityData(vuln) {
-  const vulnId = vuln.id || 'UNKNOWN';
-  // S7748 — remove zero fraction: 0.0 → 0
-  let vulnSeverity = null, vulnScore = 0, vulnVector = '-';
-
-  if (vuln.ratings && vuln.ratings.length > 0) {
-    // S4138 — use for-of over indexed loops; S135 — use boolean flag instead of labeled break
-    let found = false;
-    for (const method of PREFERRED_METHODS) {
-      if (found) break;
-      for (const rating of vuln.ratings) {
-        const bySev = extractRatingBySeverity(rating);
-        if (bySev && rating.method === method) {
-          vulnSeverity = bySev.severity;
-          vulnScore = bySev.score;
-          vulnVector = bySev.vector;
-          found = true;
-          break;
-        }
-        const byScore = extractRatingByScore(rating);
-        if (byScore && rating.method === method) {
-          vulnSeverity = byScore.severity;
-          vulnScore = byScore.score;
-          vulnVector = byScore.vector;
-          found = true;
-          break;
-        }
-      }
-    }
-    // S2681 — add braces to all if blocks; S4138 — use for-of
-    if (vulnSeverity === null) {
-      for (const r of vuln.ratings) {
-        const bySev = extractRatingBySeverity(r);
-        if (bySev) {
-          vulnSeverity = bySev.severity;
-          vulnScore = bySev.score;
-          vulnVector = bySev.vector;
-          break;
-        }
-        const byScore = extractRatingByScore(r);
-        if (byScore) {
-          vulnSeverity = byScore.severity;
-          vulnScore = byScore.score;
-          vulnVector = byScore.vector;
-          break;
-        }
-      }
+// S3776 — extracted from parseVulnerabilityData: try each PREFERRED_METHODS in order
+function findRatingByPreferredMethod(ratings) {
+  for (const method of PREFERRED_METHODS) {
+    for (const rating of ratings) {
+      if (rating.method !== method) continue;
+      const bySev = extractRatingBySeverity(rating);
+      if (bySev) return bySev;
+      const byScore = extractRatingByScore(rating);
+      if (byScore) return byScore;
     }
   }
-  if (vulnSeverity === null) vulnSeverity = 'information';
+  return null;
+}
+
+// S3776 — extracted from parseVulnerabilityData: fallback scan without method preference
+function findRatingFallback(ratings) {
+  for (const r of ratings) {
+    const bySev = extractRatingBySeverity(r);
+    if (bySev) return bySev;
+    const byScore = extractRatingByScore(r);
+    if (byScore) return byScore;
+  }
+  return null;
+}
+
+function parseVulnerabilityData(vuln) {
+  const vulnId = vuln.id || 'UNKNOWN';
+  let result = null;
+  if (vuln.ratings?.length > 0) {
+    result = findRatingByPreferredMethod(vuln.ratings) || findRatingFallback(vuln.ratings);
+  }
+  const vulnSeverity = result ? result.severity : 'information';
+  const vulnScore    = result ? result.score    : 0;
+  const vulnVector   = result ? result.vector   : '-';
   return { id: vulnId, severity: vulnSeverity, score: vulnScore, vector: vulnVector };
 }
 
@@ -404,7 +408,7 @@ function vulnUniq(arr, vd) {
 function parseJsonData(data) {
   const components = {};
 
-  if (data.metadata && data.metadata.component) {
+  if (data.metadata?.component) {
     const mc = data.metadata.component;
     components[refOf(mc)] = mkComp(mc);
   }
@@ -466,7 +470,7 @@ function parseJsonData(data) {
 
 function parseMetadata(data) {
   const info = {};
-  if (data.metadata && data.metadata.component) {
+  if (data.metadata?.component) {
     const mc = data.metadata.component;
     const mc_info = {};
     if (mc.type)    mc_info['Type']    = mc.type;
@@ -539,7 +543,7 @@ function getChildren(components, comp, parents) {
     if (!components[childRef]) return;
     const child = components[childRef];
     child.visited = true;
-    if (parents.indexOf(childRef) !== -1) {
+    if (parents.includes(childRef)) {
       children.push({ name: chartName(child), children: [], value: 1, itemStyle: determineStyle(child) });
       value += 1; return;
     }
@@ -589,7 +593,7 @@ function deepCopy(components) {
     copy[ref] = {
       name: c.name, version: c.version, type: c.type, license: new Set(c.license),
       depends_on: new Set(c.depends_on), dependency_of: new Set(c.dependency_of),
-      vulnerabilities: c.vulnerabilities.map(function (v) { return Object.assign({}, v); }),
+      vulnerabilities: c.vulnerabilities.map(function (v) { return { ...v }; }),
       transitive_vulnerabilities: [],
       max_vulnerability_severity: c.max_vulnerability_severity,
       has_transitive_vulnerabilities: false, visited: false
@@ -607,14 +611,14 @@ function vulnOnlyComponents(components) {
   const result = {};
   vulnRefs.forEach(function (ref) {
     const c = components[ref];
-    result[ref] = Object.assign({}, c, {
+    result[ref] = { ...c,
       license: new Set(c.license),
       depends_on:    new Set(Array.from(c.depends_on).filter(function (r) { return vulnRefs.has(r); })),
       dependency_of: new Set(Array.from(c.dependency_of).filter(function (r) { return vulnRefs.has(r); })),
       vulnerabilities: c.vulnerabilities.slice(),
       transitive_vulnerabilities: c.transitive_vulnerabilities.slice(),
       visited: false
-    });
+    };
   });
   return result;
 }
@@ -625,7 +629,10 @@ function parseVulnerabilities(components) {
   const vulns = {}, cnt = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   function add(vd, dirRef, tranRef) {
     const key = vd.id + '-' + vd.severity + '-' + vd.score;
-    if (!vulns[key]) {
+    if (vulns[key]) {
+      if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
+      if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
+    } else {
       vulns[key] = { id: vd.id, severity: vd.severity, score: vd.score, vector: vd.vector,
         directly_vulnerable_components: new Set(), transitively_vulnerable_components: new Set() };
       if (vd.severity === 'critical') cnt.critical++;
@@ -633,9 +640,9 @@ function parseVulnerabilities(components) {
       else if (vd.severity === 'medium') cnt.medium++;
       else if (vd.severity === 'low') cnt.low++;
       else cnt.info++;
+      if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
+      if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
     }
-    if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
-    if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
   }
   Object.keys(components).forEach(function (ref) {
     const c = components[ref];
@@ -706,13 +713,11 @@ function paginateTable(tableId) {
     info.textContent = start + '–' + end + ' of ' + filtered.length;
     pager.appendChild(info);
     for (let p = 1; p <= totalPages; p++) {
-      (function (page) {
-        const btn = document.createElement('button');
-        btn.textContent = page;
-        if (page === currentPage) btn.className = 'sv-active';
-        btn.addEventListener('click', function () { currentPage = page; render(); });
-        pager.appendChild(btn);
-      })(p);
+      const btn = document.createElement('button');
+      btn.textContent = p;
+      if (p === currentPage) btn.className = 'sv-active';
+      btn.addEventListener('click', function () { currentPage = p; render(); });
+      pager.appendChild(btn);
     }
   }
 
@@ -726,7 +731,7 @@ function paginateTable(tableId) {
         return terms.every(function (term, ci) {
           if (!term) return true;
           const cell = cells[ci];
-          return cell && cell.textContent.toLowerCase().indexOf(term) !== -1;
+          return cell && cell.textContent.toLowerCase().includes(term);
         });
       });
       currentPage = 1;
@@ -738,6 +743,18 @@ function paginateTable(tableId) {
 }
 
 // ─── renderer ────────────────────────────────────────────────────────────────
+
+// S7721 — defined at module scope so it is not recreated on every renderSunshine call
+function chartOpts(data) {
+  return {
+    tooltip: { formatter: function (p) { return p.name; } },
+    series: {
+      radius: ['15%', '100%'], type: 'sunburst', sort: undefined,
+      emphasis: { focus: 'ancestor' }, data: data,
+      label: { rotate: 'radial', show: false }, levels: []
+    }
+  };
+}
 
 function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate) {
   const components = parseJsonData(sbomData);
@@ -849,17 +866,6 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
   // init charts
   // S7764 — use globalThis.echarts over window.echarts (window.registerExtension stays as-is)
   const ec = globalThis.echarts;
-  const chartOpts = function (data) {
-    return {
-      tooltip: { formatter: function (p) { return p.name; } },
-      series: {
-        radius: ['15%', '100%'], type: 'sunburst', sort: undefined,
-        emphasis: { focus: 'ancestor' }, data: data,
-        label: { rotate: 'radial', show: false }, levels: []
-      }
-    };
-  };
-
   const chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
   const chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
   chartAll.setOption(chartOpts(echartsAll));
