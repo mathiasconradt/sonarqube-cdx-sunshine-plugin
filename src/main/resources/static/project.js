@@ -43,6 +43,8 @@ window.registerExtension('sbomviz/project', function (options) {
       '.sbomviz-title { color: #3e4357; margin: 16px 0 8px; font-size: 1.1em; font-weight: 600; }',
       '.sbomviz-loading { text-align: center; padding: 40px 0; color: #666; }',
       '.sbomviz-error { background: #f8d7da; color: #721c24; border-radius: 4px; padding: 12px 16px; }',
+      '.sbomviz-empty { background: #fff8e1; color: #5f4500; border: 1px solid #ffe8a3;',
+      '  border-radius: 4px; padding: 14px 18px; font-size: 14px; }',
       /* chart — height relative to viewport so it fits without fixed overflow */
       '.sbomviz-chart { width: 100%; height: 60vh; min-height: 400px; }',
       /* table wrapper scrolls horizontally but outer section does not */
@@ -145,13 +147,30 @@ window.registerExtension('sbomviz/project', function (options) {
   }
 
   let selectedBranch = null;
+  const NOT_ANALYZED_MESSAGE = 'This project has not been analyzed yet. Run a project analysis first, then refresh this page.';
+  const NO_DEPENDENCY_SCAN_MESSAGE = 'No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.';
 
   function fetchSbomData(branch, noCache) {
     let url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
     if (branch) url += '&branch=' + encodeURIComponent(branch);
     if (noCache) url += '&noCache=true';
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function (r) { return r.json(); });
+      .then(function (r) {
+        return r.text().then(function (body) {
+          let data = {};
+          if (body) {
+            try {
+              data = JSON.parse(body);
+            } catch (e) {
+              throw new Error('Unexpected response from SBOM Visualization API.');
+            }
+          }
+          if (!r.ok) {
+            throw new Error(data.error || data.message || ('HTTP ' + r.status + ' from SBOM Visualization API.'));
+          }
+          return data;
+        });
+      });
   }
 
   function loadAndRender(branch, noCache) {
@@ -166,8 +185,8 @@ window.registerExtension('sbomviz/project', function (options) {
             vizDiv.innerHTML = '<div class="sbomviz-error"><strong>Error:</strong> ' + escHtml(data.error) + '</div>';
             return;
           }
-          if (!data.sbom) {
-            vizDiv.innerHTML = '<div class="sbomviz-error">No SBOM data returned.</div>';
+          if (data.unavailable || !isRenderableSbom(data.sbom)) {
+            vizDiv.innerHTML = emptyStateHtml(data.message || NO_DEPENDENCY_SCAN_MESSAGE);
             return;
           }
           renderSunshine(vizDiv, data.sbom, projectKey, data.generatedAt || null, data.lastAnalysisDate || null);
@@ -184,11 +203,21 @@ window.registerExtension('sbomviz/project', function (options) {
   })
     .then(function (r) { return r.json(); })
     .then(function (data) {
+      if (data.error) {
+        el.innerHTML = '<div class="sbomviz"><div class="sbomviz-error"><strong>Error:</strong> ' + escHtml(data.error) + '</div></div>';
+        return;
+      }
+
       const branches = (data.branches || []).sort(function (a, b) {
         if (a.isMain) return -1;
         if (b.isMain) return 1;
         return a.name.localeCompare(b.name);
       });
+
+      if (branches.length === 0) {
+        el.innerHTML = '<div class="sbomviz">' + emptyStateHtml(NOT_ANALYZED_MESSAGE) + '</div>';
+        return;
+      }
 
       const defaultBranch = branches.find(function (b) { return b.isMain; });
       if (defaultBranch) {
@@ -201,18 +230,16 @@ window.registerExtension('sbomviz/project', function (options) {
 
       // S3358 — extracted nested ternary into if/else
       let branchBarHtml = '';
-      if (branches.length > 0) {
-        const options = branches.map(function (b) {
-          return '<option value="' + escHtml(b.name) + '"' +
-            (b.name === selectedBranch ? ' selected' : '') + '>' +
-            escHtml(b.name) + (b.isMain ? ' (default)' : '') + '</option>';
-        }).join('');
-        branchBarHtml = '<div class="sv-branch-bar">' +
-          '<label for="sbomviz-branch-select">Branch:</label>' +
-          '<select id="sbomviz-branch-select">' + options + '</select>' +
-          '<button class="sv-refresh-btn" id="sbomviz-refresh-btn">↺ Refresh</button>' +
-          '</div>';
-      }
+      const options = branches.map(function (b) {
+        return '<option value="' + escHtml(b.name) + '"' +
+          (b.name === selectedBranch ? ' selected' : '') + '>' +
+          escHtml(b.name) + (b.isMain ? ' (default)' : '') + '</option>';
+      }).join('');
+      branchBarHtml = '<div class="sv-branch-bar">' +
+        '<label for="sbomviz-branch-select">Branch:</label>' +
+        '<select id="sbomviz-branch-select">' + options + '</select>' +
+        '<button class="sv-refresh-btn" id="sbomviz-refresh-btn">↺ Refresh</button>' +
+        '</div>';
 
       el.innerHTML = '<div class="sbomviz">' +
         branchBarHtml +
@@ -263,6 +290,22 @@ function escHtml(s) {
 }
 
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+function emptyStateHtml(message) {
+  return '<div class="sbomviz-empty">' + escHtml(message) + '</div>';
+}
+
+function isArrayField(data, field) {
+  return Array.isArray(data?.[field]);
+}
+
+function isRenderableSbom(data) {
+  if (!data || typeof data !== 'object') return false;
+  const hasMetadataComponent = !!data.metadata?.component;
+  const hasComponents = isArrayField(data, 'components') && data.components.length > 0;
+  const hasServices = isArrayField(data, 'services') && data.services.length > 0;
+  return hasMetadataComponent || hasComponents || hasServices;
+}
 
 // ─── severity constants ───────────────────────────────────────────────────────
 
@@ -331,6 +374,7 @@ function extractRatingByScore(rating) {
 
 // S3776 — extracted from parseVulnerabilityData: try each PREFERRED_METHODS in order
 function findRatingByPreferredMethod(ratings) {
+  if (!Array.isArray(ratings)) return null;
   for (const method of PREFERRED_METHODS) {
     for (const rating of ratings) {
       if (rating.method !== method) continue;
@@ -345,6 +389,7 @@ function findRatingByPreferredMethod(ratings) {
 
 // S3776 — extracted from parseVulnerabilityData: fallback scan without method preference
 function findRatingFallback(ratings) {
+  if (!Array.isArray(ratings)) return null;
   for (const r of ratings) {
     const bySev = extractRatingBySeverity(r);
     if (bySev) return bySev;
@@ -370,7 +415,7 @@ function parseVulnerabilityData(vuln) {
 
 function parseLicenses(comp) {
   const lics = new Set();
-  if (!comp.licenses) return lics;
+  if (!Array.isArray(comp.licenses)) return lics;
   comp.licenses.forEach(function (l) {
     // S6582 — use optional chaining
     if (l.license?.id)   { lics.add(l.license.id); return; }
@@ -416,15 +461,15 @@ function parseJsonData(data) {
   }
 
   ['components', 'services'].forEach(function (key) {
-    if (!data[key]) return;
+    if (!Array.isArray(data[key])) return;
     data[key].forEach(function (c) { components[refOf(c)] = mkComp(c); });
   });
 
-  if (data.dependencies) {
+  if (Array.isArray(data.dependencies)) {
     data.dependencies.forEach(function (dep) {
       const ref = dep.ref;
       if (!components[ref]) components[ref] = mkFake(ref);
-      (dep.dependsOn || []).forEach(function (child) {
+      (Array.isArray(dep.dependsOn) ? dep.dependsOn : []).forEach(function (child) {
         if (!components[child]) components[child] = mkFake(child);
         components[ref].depends_on.add(child);
         components[child].dependency_of.add(ref);
@@ -433,18 +478,18 @@ function parseJsonData(data) {
   }
 
   ['components', 'services'].forEach(function (key) {
-    if (!data[key]) return;
+    if (!Array.isArray(data[key])) return;
     data[key].forEach(function (c) {
       const ref = refOf(c);
       // inner deps
-      (c.dependencies || []).forEach(function (dep) {
+      (Array.isArray(c.dependencies) ? c.dependencies : []).forEach(function (dep) {
         const child = dep.ref;
         if (!components[child]) components[child] = mkFake(child);
         components[ref].depends_on.add(child);
         components[child].dependency_of.add(ref);
       });
       // component-level vulnerabilities
-      (c.vulnerabilities || []).forEach(function (v) {
+      (Array.isArray(c.vulnerabilities) ? c.vulnerabilities : []).forEach(function (v) {
         const vd = parseVulnerabilityData(v);
         if (!vulnUniq(components[ref].vulnerabilities, vd)) components[ref].vulnerabilities.push(vd);
         if (VALID_SEVERITIES[vd.severity] > VALID_SEVERITIES[components[ref].max_vulnerability_severity]) {
@@ -455,9 +500,9 @@ function parseJsonData(data) {
   });
 
   // top-level vulnerabilities
-  (data.vulnerabilities || []).forEach(function (v) {
+  (Array.isArray(data.vulnerabilities) ? data.vulnerabilities : []).forEach(function (v) {
     const vd = parseVulnerabilityData(v);
-    (v.affects || []).forEach(function (a) {
+    (Array.isArray(v.affects) ? v.affects : []).forEach(function (a) {
       const ref = a.ref;
       if (!components[ref]) components[ref] = mkFake(ref);
       if (!vulnUniq(components[ref].vulnerabilities, vd)) components[ref].vulnerabilities.push(vd);
@@ -770,6 +815,11 @@ function chartOpts(data) {
 }
 
 function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate) {
+  if (!isRenderableSbom(sbomData)) {
+    el.innerHTML = emptyStateHtml('No dependency scan data is available for this project branch yet.');
+    return;
+  }
+
   const components = parseJsonData(sbomData);
   purgeComponents(components);
 
@@ -790,6 +840,10 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
   const stats = parseVulnerabilities(components);
   const compKeys = Object.keys(components);
   const vulnKeys = Object.keys(stats.vulns);
+  if (compKeys.length === 0 || echartsAll.length === 0) {
+    el.innerHTML = emptyStateHtml('No dependency scan data is available for this project branch yet.');
+    return;
+  }
 
   // ── components table ──
   const compRows = compKeys.map(function (ref) {

@@ -6,7 +6,7 @@
 
   <groupId>com.example</groupId>
   <artifactId>sonarqube-cdx-sunshine-plugin</artifactId>
-  <version>0.1.1</version>
+  <version>0.1.2</version>
   <packaging>sonar-plugin</packaging>
 
   <name>SBOM Visualization</name>

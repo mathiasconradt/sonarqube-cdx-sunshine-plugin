@@ -43,6 +43,10 @@ public class SbomVisualizationWebService implements WebService {
     private static final String PARAM_PROJECT_KEY = "projectKey";
     private static final String APPLICATION_JSON = "application/json";
     private static final String FIELD_VULNERABILITIES = "vulnerabilities";
+    private static final String NO_DEPENDENCY_SCAN_MESSAGE =
+        "No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.";
+    private static final String NOT_ANALYZED_MESSAGE =
+        "This project has not been analyzed yet. Run a project analysis first, then refresh this page.";
 
     private final Configuration configuration;
     private final Path cacheDir;
@@ -130,6 +134,11 @@ public class SbomVisualizationWebService implements WebService {
                 ? "&branch=" + URLEncoder.encode(branch, StandardCharsets.UTF_8)
                 : "";
 
+            if ((branch == null || branch.isBlank()) && !hasBranches(baseUrl, encodedKey, token, gson)) {
+                writeUnavailable(response, NOT_ANALYZED_MESSAGE, null);
+                return;
+            }
+
             // check last analysis date
             Instant lastAnalysis = fetchLastAnalysisDate(baseUrl, encodedKey, branchSuffix, token, gson);
 
@@ -143,18 +152,27 @@ public class SbomVisualizationWebService implements WebService {
             }
 
             // fetch fresh data
-            String sbomJson = fetchUrl(
-                baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx" + branchSuffix,
-                token, "application/vnd.cyclonedx+json"
-            );
-            String risksJson = fetchUrl(
-                baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey + branchSuffix,
-                token, null
-            );
+            String sbomJson;
+            try {
+                sbomJson = fetchUrl(
+                    baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx" + branchSuffix,
+                    token, "application/vnd.cyclonedx+json"
+                );
+            } catch (IOException e) {
+                if (isMissingScaData(e)) {
+                    writeUnavailable(response, NO_DEPENDENCY_SCAN_MESSAGE, lastAnalysis);
+                    return;
+                }
+                throw e;
+            }
 
             JsonObject sbom = gson.fromJson(sbomJson, JsonObject.class);
-            JsonElement risksEl = gson.fromJson(risksJson, JsonElement.class);
-            JsonArray risks = risksEl.isJsonArray() ? risksEl.getAsJsonArray() : new JsonArray();
+            if (!isUsableCycloneDxSbom(sbom)) {
+                writeUnavailable(response, NO_DEPENDENCY_SCAN_MESSAGE, lastAnalysis);
+                return;
+            }
+
+            JsonArray risks = fetchRisks(baseUrl, encodedKey, branchSuffix, token, gson);
             JsonObject enriched = mergeRisksIntoSbom(sbom, risks);
 
             String generatedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
@@ -173,9 +191,71 @@ public class SbomVisualizationWebService implements WebService {
             response.stream().setMediaType(APPLICATION_JSON);
             response.stream().output().write(resultJson.getBytes(StandardCharsets.UTF_8));
 
+        } catch (JsonParseException | IllegalStateException e) {
+            writeJsonError(response, "Unexpected response from SonarQube SCA API: " + e.getMessage());
         } catch (IOException e) {
             writeJsonError(response, "Failed to fetch data from SonarQube API: " + e.getMessage());
         }
+    }
+
+    private JsonArray fetchRisks(String baseUrl, String encodedKey, String branchSuffix,
+                                 String token, Gson gson) throws IOException {
+        try {
+            String risksJson = fetchUrl(
+                baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey + branchSuffix,
+                token, null
+            );
+            JsonElement risksEl = gson.fromJson(risksJson, JsonElement.class);
+            if (risksEl == null || risksEl.isJsonNull()) {
+                return new JsonArray();
+            }
+            if (risksEl.isJsonArray()) {
+                return risksEl.getAsJsonArray();
+            }
+            if (risksEl.isJsonObject() && risksEl.getAsJsonObject().has("risks")) {
+                JsonElement risks = risksEl.getAsJsonObject().get("risks");
+                return risks.isJsonArray() ? risks.getAsJsonArray() : new JsonArray();
+            }
+            return new JsonArray();
+        } catch (IOException e) {
+            if (isMissingScaData(e)) {
+                return new JsonArray();
+            }
+            throw e;
+        }
+    }
+
+    private boolean hasBranches(String baseUrl, String encodedKey, String token, Gson gson) {
+        try {
+            String branchesJson = fetchUrl(
+                baseUrl + "/api/project_branches/list?project=" + encodedKey,
+                token, null
+            );
+            JsonObject obj = gson.fromJson(branchesJson, JsonObject.class);
+            return obj.has("branches")
+                && obj.get("branches").isJsonArray()
+                && obj.getAsJsonArray("branches").size() > 0;
+        } catch (Exception ignored) {
+            return true;
+        }
+    }
+
+    private boolean isUsableCycloneDxSbom(JsonObject sbom) {
+        if (sbom == null) {
+            return false;
+        }
+        boolean hasComponents = sbom.has("components")
+            && sbom.get("components").isJsonArray()
+            && sbom.getAsJsonArray("components").size() > 0;
+        boolean hasMetadataComponent = sbom.has("metadata")
+            && sbom.get("metadata").isJsonObject()
+            && sbom.getAsJsonObject("metadata").has("component");
+        return hasComponents || hasMetadataComponent;
+    }
+
+    private boolean isMissingScaData(IOException e) {
+        String message = e.getMessage();
+        return message != null && (message.contains("Not found (404)") || message.contains("HTTP 204"));
     }
 
     // S3776 — extracted from getData to reduce cognitive complexity
@@ -268,6 +348,17 @@ public class SbomVisualizationWebService implements WebService {
         err.addProperty("error", message);
         response.stream().setMediaType(APPLICATION_JSON);
         response.stream().output().write(new Gson().toJson(err).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void writeUnavailable(Response response, String message, Instant lastAnalysis) throws IOException {
+        JsonObject unavailable = new JsonObject();
+        unavailable.addProperty("unavailable", true);
+        unavailable.addProperty("message", message);
+        if (lastAnalysis != null) {
+            unavailable.addProperty("lastAnalysisDate", DateTimeFormatter.ISO_INSTANT.format(lastAnalysis));
+        }
+        response.stream().setMediaType(APPLICATION_JSON);
+        response.stream().output().write(new Gson().toJson(unavailable).getBytes(StandardCharsets.UTF_8));
     }
 
     private String fetchUrl(String urlStr, String token, String accept) throws IOException {
