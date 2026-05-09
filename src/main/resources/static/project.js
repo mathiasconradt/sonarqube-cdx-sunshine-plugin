@@ -83,7 +83,12 @@ window.registerExtension('sbomviz/project', function (options) {
       '.sv-page-ctrl .sv-page-info { font-size: 12px; color: #666; margin-left: 4px; }',
       /* color legend */
       '.sv-legend { font-size: 12px; margin: 6px 0 12px; }',
-      '.sv-legend span { margin-right: 14px; }'
+      '.sv-legend span { margin-right: 14px; }',
+      /* branch selector */
+      '.sv-branch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }',
+      '.sv-branch-bar label { font-weight: 600; color: #3e4357; }',
+      '.sv-branch-bar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;',
+      '  font-size: 13px; background: #fff; cursor: pointer; }'
     ].join('\n');
     document.head.appendChild(injectedStyle);
   }
@@ -110,27 +115,88 @@ window.registerExtension('sbomviz/project', function (options) {
     });
   }
 
-  Promise.all([
-    loadEcharts(),
-    fetch('/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey), {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then(function (r) { return r.json(); })
-  ])
-    .then(function (results) {
-      var data = results[1];
-      if (data.error) {
-        el.innerHTML = '<div class="sbomviz"><div class="sbomviz-error"><strong>SBOM Visualization</strong><br>' +
-          escHtml(data.error) + '</div></div>';
-        return;
+  var selectedBranch = null;
+
+  function fetchSbomData(branch) {
+    var url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
+    if (branch) url += '&branch=' + encodeURIComponent(branch);
+    return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); });
+  }
+
+  function loadAndRender(branch) {
+    var vizDiv = document.getElementById('sbomviz-viz');
+    if (vizDiv) vizDiv.innerHTML = '<div class="sbomviz-loading">Loading…</div>';
+
+    Promise.all([loadEcharts(), fetchSbomData(branch)])
+      .then(function (results) {
+        var data = results[1];
+        if (vizDiv) {
+          if (data.error) {
+            vizDiv.innerHTML = '<div class="sbomviz-error"><strong>Error:</strong> ' + escHtml(data.error) + '</div>';
+            return;
+          }
+          if (!data.sbom) {
+            vizDiv.innerHTML = '<div class="sbomviz-error">No SBOM data returned.</div>';
+            return;
+          }
+          renderSunshine(vizDiv, data.sbom, projectKey);
+        }
+      })
+      .catch(function (e) {
+        if (vizDiv) vizDiv.innerHTML = '<div class="sbomviz-error">Failed to load: ' + escHtml(e.message) + '</div>';
+      });
+  }
+
+  // fetch branches first, then build UI
+  fetch('/api/sbomviz/branches?projectKey=' + encodeURIComponent(projectKey), {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var branches = (data.branches || []).sort(function (a, b) {
+        if (a.isMain) return -1;
+        if (b.isMain) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      var defaultBranch = branches.find(function (b) { return b.isMain; });
+      selectedBranch = defaultBranch ? defaultBranch.name : (branches[0] ? branches[0].name : null);
+
+      var branchBarHtml = '';
+      if (branches.length > 0) {
+        var options = branches.map(function (b) {
+          return '<option value="' + escHtml(b.name) + '"' +
+            (b.name === selectedBranch ? ' selected' : '') + '>' +
+            escHtml(b.name) + (b.isMain ? ' (default)' : '') + '</option>';
+        }).join('');
+        branchBarHtml = '<div class="sv-branch-bar">' +
+          '<label for="sbomviz-branch-select">Branch:</label>' +
+          '<select id="sbomviz-branch-select">' + options + '</select>' +
+          '</div>';
       }
-      if (!data.sbom) {
-        el.innerHTML = '<div class="sbomviz"><div class="sbomviz-error">No SBOM data returned.</div></div>';
-        return;
+
+      el.innerHTML = '<div class="sbomviz">' +
+        branchBarHtml +
+        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data…</div></div>' +
+        '</div>';
+
+      var select = document.getElementById('sbomviz-branch-select');
+      if (select) {
+        select.addEventListener('change', function () {
+          selectedBranch = this.value;
+          loadAndRender(selectedBranch);
+        });
       }
-      renderSunshine(el, data.sbom, projectKey);
+
+      loadAndRender(selectedBranch);
     })
-    .catch(function (e) {
-      el.innerHTML = '<div class="sbomviz"><div class="sbomviz-error">Failed to load: ' + escHtml(e.message) + '</div></div>';
+    .catch(function () {
+      // branches fetch failed — fall back to default branch
+      el.innerHTML = '<div class="sbomviz">' +
+        '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data…</div></div>' +
+        '</div>';
+      loadAndRender(null);
     });
 
   return function () {

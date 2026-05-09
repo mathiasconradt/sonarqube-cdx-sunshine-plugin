@@ -44,19 +44,58 @@ public class SbomVisualizationWebService implements WebService {
         NewController controller = context.createController("api/sbomviz");
         controller.setDescription("SBOM Visualization API");
 
-        controller.createAction("data")
+        NewAction dataAction = controller.createAction("data")
             .setDescription("Get enriched SBOM data for a project")
             .setHandler(this::getData)
-            .setInternal(true)
-            .createParam("projectKey")
+            .setInternal(true);
+        dataAction.createParam("projectKey")
+            .setRequired(true)
+            .setDescription("The SonarQube project key");
+        dataAction.createParam("branch")
+            .setRequired(false)
+            .setDescription("Branch name (defaults to main branch)");
+
+        NewAction branchesAction = controller.createAction("branches")
+            .setDescription("List branches for a project")
+            .setHandler(this::getBranches)
+            .setInternal(true);
+        branchesAction.createParam("projectKey")
             .setRequired(true)
             .setDescription("The SonarQube project key");
 
         controller.done();
     }
 
+    private void getBranches(Request request, Response response) throws Exception {
+        String projectKey = request.mandatoryParam("projectKey");
+        String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
+
+        if (token.isEmpty()) {
+            writeJsonError(response, "SonarQube token not configured.");
+            return;
+        }
+
+        int port = configuration.getInt("sonar.web.port").orElse(9000);
+        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
+        String baseUrl = "http://localhost:" + port + ctx;
+
+        try {
+            String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
+            String branchesJson = fetchUrl(
+                baseUrl + "/api/project_branches/list?project=" + encodedKey,
+                token,
+                null
+            );
+            response.stream().setMediaType("application/json");
+            response.stream().output().write(branchesJson.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            writeJsonError(response, "Failed to fetch branches: " + e.getMessage());
+        }
+    }
+
     private void getData(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam("projectKey");
+        String branch = request.param("branch");
         String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
 
         if (token.isEmpty()) {
@@ -70,15 +109,18 @@ public class SbomVisualizationWebService implements WebService {
 
         try {
             String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
+            String branchSuffix = (branch != null && !branch.isBlank())
+                ? "&branch=" + URLEncoder.encode(branch, StandardCharsets.UTF_8)
+                : "";
 
             String sbomJson = fetchUrl(
-                baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx",
+                baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx" + branchSuffix,
                 token,
                 "application/vnd.cyclonedx+json"
             );
 
             String risksJson = fetchUrl(
-                baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey,
+                baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey + branchSuffix,
                 token,
                 null
             );
