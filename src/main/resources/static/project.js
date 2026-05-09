@@ -307,9 +307,9 @@ function getSeverityByScore(score) {
 
 // S3776 — extracted helpers to reduce cognitive complexity of parseVulnerabilityData
 function extractRatingBySeverity(rating) {
-  if (rating.severity && VALID_SEVERITIES[rating.severity.toLowerCase()] !== undefined) {
+  if (rating.severity && rating.severity.toLowerCase() in VALID_SEVERITIES) {
     const sev = rating.severity.toLowerCase() === 'info' ? 'information' : rating.severity.toLowerCase();
-    const score = rating.score != null ? Number.parseFloat(rating.score) : 0;
+    const score = rating.score == null ? 0 : Number.parseFloat(rating.score);
     const vector = rating.vector || '-';
     return { severity: sev, score, vector };
   }
@@ -512,7 +512,7 @@ function determineStyle(c) {
 }
 
 function chartName(c) {
-  let n = escHtml(c.name) + (c.version !== '-' ? ' <b>' + escHtml(c.version) + '</b>' : '');
+  let n = escHtml(c.name) + (c.version === '-' ? '' : ' <b>' + escHtml(c.version) + '</b>');
   const vulns = c.vulnerabilities.slice().sort(function (a, b) {
     return (VALID_SEVERITIES[b.severity] || 0) - (VALID_SEVERITIES[a.severity] || 0);
   });
@@ -625,29 +625,34 @@ function vulnOnlyComponents(components) {
 
 // ─── stats ────────────────────────────────────────────────────────────────────
 
+function incrementSeverityCount(cnt, severity) {
+  if (severity === 'critical')     cnt.critical++;
+  else if (severity === 'high')   cnt.high++;
+  else if (severity === 'medium') cnt.medium++;
+  else if (severity === 'low')    cnt.low++;
+  else                             cnt.info++;
+}
+
+function addVulnEntry(vulns, cnt, vd, dirRef, tranRef) {
+  const key = vd.id + '-' + vd.severity + '-' + vd.score;
+  if (vulns[key]) {
+    if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
+    if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
+  } else {
+    vulns[key] = { id: vd.id, severity: vd.severity, score: vd.score, vector: vd.vector,
+      directly_vulnerable_components: new Set(), transitively_vulnerable_components: new Set() };
+    incrementSeverityCount(cnt, vd.severity);
+    if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
+    if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
+  }
+}
+
 function parseVulnerabilities(components) {
   const vulns = {}, cnt = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-  function add(vd, dirRef, tranRef) {
-    const key = vd.id + '-' + vd.severity + '-' + vd.score;
-    if (vulns[key]) {
-      if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
-      if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
-    } else {
-      vulns[key] = { id: vd.id, severity: vd.severity, score: vd.score, vector: vd.vector,
-        directly_vulnerable_components: new Set(), transitively_vulnerable_components: new Set() };
-      if (vd.severity === 'critical') cnt.critical++;
-      else if (vd.severity === 'high') cnt.high++;
-      else if (vd.severity === 'medium') cnt.medium++;
-      else if (vd.severity === 'low') cnt.low++;
-      else cnt.info++;
-      if (dirRef)  vulns[key].directly_vulnerable_components.add(dirRef);
-      if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
-    }
-  }
   Object.keys(components).forEach(function (ref) {
     const c = components[ref];
-    c.vulnerabilities.forEach(function (vd) { add(vd, ref, null); });
-    c.transitive_vulnerabilities.forEach(function (vd) { add(vd, null, ref); });
+    c.vulnerabilities.forEach(function (vd) { addVulnEntry(vulns, cnt, vd, ref, null); });
+    c.transitive_vulnerabilities.forEach(function (vd) { addVulnEntry(vulns, cnt, vd, null, ref); });
   });
   return { vulns: vulns, critical: cnt.critical, high: cnt.high, medium: cnt.medium, low: cnt.low, info: cnt.info };
 }
@@ -657,7 +662,7 @@ function parseVulnerabilities(components) {
 function compBadge(c) {
   const cls = badgeClass(c.max_vulnerability_severity, c.has_transitive_vulnerabilities);
   return '<span class="' + cls + '">' + escHtml(c.name) +
-    (c.version !== '-' ? ' ' + escHtml(c.version) : '') + '</span>';
+    (c.version === '-' ? '' : ' ' + escHtml(c.version)) + '</span>';
 }
 
 function vulnBadgesHtml(list) {
@@ -682,6 +687,14 @@ function buildTable(id, headers, rows, searchable) {
   thead += '</thead>';
   const tbody = '<tbody>' + rows.join('') + '</tbody>';
   return '<table id="' + id + '" class="sbomviz-tbl">' + thead + tbody + '</table>';
+}
+
+function rowMatchesTerms(row, terms) {
+  const cells = row.querySelectorAll('td');
+  return terms.every(function (term, ci) {
+    if (!term) return true;
+    return cells[ci]?.textContent.toLowerCase().includes(term);
+  });
 }
 
 function paginateTable(tableId) {
@@ -721,19 +734,11 @@ function paginateTable(tableId) {
     }
   }
 
-  // search
   const searchInputs = table.querySelectorAll('.sv-search-row input');
-  searchInputs.forEach(function (input, colIdx) {
+  searchInputs.forEach(function (input) {
     input.addEventListener('input', function () {
       const terms = Array.from(searchInputs).map(function (i) { return i.value.trim().toLowerCase(); });
-      filtered = allRows.filter(function (row) {
-        const cells = row.querySelectorAll('td');
-        return terms.every(function (term, ci) {
-          if (!term) return true;
-          const cell = cells[ci];
-          return cell && cell.textContent.toLowerCase().includes(term);
-        });
-      });
+      filtered = allRows.filter(function (row) { return rowMatchesTerms(row, terms); });
       currentPage = 1;
       render();
     });
