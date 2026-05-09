@@ -189,7 +189,7 @@ window.registerExtension('sbomviz/project', function (options) {
             vizDiv.innerHTML = emptyStateHtml(data.message || NO_DEPENDENCY_SCAN_MESSAGE);
             return;
           }
-          renderSunshine(vizDiv, data.sbom, projectKey, data.generatedAt || null, data.lastAnalysisDate || null);
+          return renderSunshine(vizDiv, data.sbom, projectKey, data.generatedAt || null, data.lastAnalysisDate || null, data.largeGraphLimits || null);
         }
       })
       .catch(function (e) {
@@ -327,6 +327,10 @@ const STYLES = {
   transitive:  { color: '#9fc5e8', borderWidth: 2 },
   direct:      { color: '#4a9eff', borderWidth: 2 }
 };
+
+const LARGE_GRAPH_COMPONENT_LIMIT = 5000;
+const LARGE_GRAPH_EDGE_LIMIT = 15000;
+const MAX_CELL_BADGES = 100;
 
 function badgeClass(sev, hasTransitive) {
   if (sev === 'critical')   return 'sv-badge sv-critical';
@@ -710,12 +714,42 @@ function parseVulnerabilities(components) {
   return { vulns: vulns, critical: cnt.critical, high: cnt.high, medium: cnt.medium, low: cnt.low, info: cnt.info };
 }
 
+function countDependencyEdges(components) {
+  let edges = 0;
+  Object.keys(components).forEach(function (ref) {
+    edges += components[ref].depends_on.size;
+  });
+  return edges;
+}
+
 // ─── HTML table helpers ───────────────────────────────────────────────────────
 
 function compBadge(c) {
   const cls = badgeClass(c.max_vulnerability_severity, c.has_transitive_vulnerabilities);
   return '<span class="' + cls + '">' + escHtml(c.name) +
     (c.version === '-' ? '' : ' ' + escHtml(c.version)) + '</span>';
+}
+
+function compText(c) {
+  return (c.name || '') + (c.version === '-' ? '' : ' ' + (c.version || ''));
+}
+
+function refsText(refs, components) {
+  return refs.map(function (r) { return components[r] ? compText(components[r]) : r; }).join(' ');
+}
+
+function refsBadgesHtml(refs, components) {
+  const shown = refs.slice(0, MAX_CELL_BADGES).map(function (r) {
+    return components[r] ? compBadge(components[r]) : escHtml(r);
+  });
+  if (refs.length > MAX_CELL_BADGES) {
+    shown.push('<span class="sv-badge sv-clean">+' + (refs.length - MAX_CELL_BADGES) + ' more</span>');
+  }
+  return shown.join('<br>');
+}
+
+function vulnText(list) {
+  return list.map(function (v) { return v.id + ' ' + v.severity + ' ' + v.score; }).join(' ');
 }
 
 function vulnBadgesHtml(list) {
@@ -800,11 +834,114 @@ function paginateTable(tableId) {
   render();
 }
 
+function buildVirtualTableShell(id, headers, searchable) {
+  let thead = '<thead><tr>' + headers.map(function (h) {
+    return '<th>' + h + '</th>';
+  }).join('') + '</tr>';
+  if (searchable) {
+    thead += '<tr class="sv-search-row">' + headers.map(function () {
+      return '<th><input type="text" placeholder="Search…"></th>';
+    }).join('') + '</tr>';
+  }
+  thead += '</thead>';
+  return '<div class="sbomviz-tbl-wrap">' +
+    '<table id="' + id + '" class="sbomviz-tbl">' + thead + '<tbody></tbody></table>' +
+    '<div id="' + id + '-pager" class="sv-page-ctrl"></div>' +
+    '</div>';
+}
+
+function renderVirtualTable(id, rows) {
+  const table = document.getElementById(id);
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const pager = document.getElementById(id + '-pager');
+  const searchInputs = Array.from(table.querySelectorAll('.sv-search-row input'));
+  const pageSize = 15;
+  let currentPage = 1;
+  let filtered = rows;
+
+  function rowMatches(row, terms) {
+    return terms.every(function (term, ci) {
+      return !term || (row.search[ci] || '').includes(term);
+    });
+  }
+
+  function addPagerButton(label, page, disabled, active) {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    if (active) btn.className = 'sv-active';
+    btn.disabled = disabled;
+    btn.addEventListener('click', function () {
+      currentPage = page;
+      render();
+    });
+    pager.appendChild(btn);
+  }
+
+  function renderPager() {
+    pager.innerHTML = '';
+    const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+    const info = document.createElement('span');
+    info.className = 'sv-page-info';
+    const start = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    const end = Math.min(currentPage * pageSize, filtered.length);
+    info.textContent = start + '–' + end + ' of ' + filtered.length;
+    pager.appendChild(info);
+
+    addPagerButton('Prev', Math.max(1, currentPage - 1), currentPage === 1, false);
+    const first = Math.max(1, currentPage - 2);
+    const last = Math.min(totalPages, currentPage + 2);
+    if (first > 1) {
+      addPagerButton('1', 1, false, currentPage === 1);
+      if (first > 2) {
+        const gap = document.createElement('span');
+        gap.className = 'sv-page-info';
+        gap.textContent = '...';
+        pager.appendChild(gap);
+      }
+    }
+    for (let p = first; p <= last; p++) {
+      addPagerButton(String(p), p, false, p === currentPage);
+    }
+    if (last < totalPages) {
+      if (last < totalPages - 1) {
+        const gap = document.createElement('span');
+        gap.className = 'sv-page-info';
+        gap.textContent = '...';
+        pager.appendChild(gap);
+      }
+      addPagerButton(String(totalPages), totalPages, false, currentPage === totalPages);
+    }
+    addPagerButton('Next', Math.min(totalPages, currentPage + 1), currentPage === totalPages, false);
+  }
+
+  function render() {
+    const start = (currentPage - 1) * pageSize;
+    tbody.innerHTML = filtered.slice(start, start + pageSize).map(function (row) {
+      const cells = typeof row.cells === 'function' ? row.cells() : row.cells;
+      return '<tr>' + cells.map(function (cell) { return '<td>' + cell + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    renderPager();
+  }
+
+  searchInputs.forEach(function (input) {
+    input.addEventListener('input', function () {
+      const terms = searchInputs.map(function (i) { return i.value.trim().toLowerCase(); });
+      filtered = rows.filter(function (row) { return rowMatches(row, terms); });
+      currentPage = 1;
+      render();
+    });
+  });
+
+  render();
+}
+
 // ─── renderer ────────────────────────────────────────────────────────────────
 
 // S7721 — defined at module scope so it is not recreated on every renderSunshine call
 function chartOpts(data) {
   return {
+    animation: false,
     tooltip: { formatter: function (p) { return p.name; } },
     series: {
       radius: ['15%', '100%'], type: 'sunburst', sort: undefined,
@@ -814,7 +951,12 @@ function chartOpts(data) {
   };
 }
 
-function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate) {
+function validLimit(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return parsed > 0 ? parsed : fallback;
+}
+
+function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate, largeGraphLimits) {
   if (!isRenderableSbom(sbomData)) {
     el.innerHTML = emptyStateHtml('No dependency scan data is available for this project branch yet.');
     return;
@@ -823,103 +965,101 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
   const components = parseJsonData(sbomData);
   purgeComponents(components);
 
-  const allCopy = deepCopy(components);
-  const echartsAll = buildEchartsData(allCopy);
-  // propagate transitive state back
-  Object.keys(allCopy).forEach(function (ref) {
-    if (components[ref]) {
-      components[ref].has_transitive_vulnerabilities = allCopy[ref].has_transitive_vulnerabilities;
-      components[ref].transitive_vulnerabilities = allCopy[ref].transitive_vulnerabilities;
-      components[ref].visited = allCopy[ref].visited;
-    }
-  });
+  const componentLimit = validLimit(largeGraphLimits?.componentLimit, LARGE_GRAPH_COMPONENT_LIMIT);
+  const edgeLimit = validLimit(largeGraphLimits?.edgeLimit, LARGE_GRAPH_EDGE_LIMIT);
+  const compKeys = Object.keys(components);
+  const edgeCount = countDependencyEdges(components);
+  const largeGraph = compKeys.length > componentLimit || edgeCount > edgeLimit;
+  let echartsAll = [];
 
-  const vulnCopy = vulnOnlyComponents(components);
-  const echartsVuln = buildEchartsData(vulnCopy);
+  if (!largeGraph) {
+    const allCopy = deepCopy(components);
+    echartsAll = buildEchartsData(allCopy);
+
+    // propagate transitive state back
+    Object.keys(allCopy).forEach(function (ref) {
+      if (components[ref]) {
+        components[ref].has_transitive_vulnerabilities = allCopy[ref].has_transitive_vulnerabilities;
+        components[ref].transitive_vulnerabilities = allCopy[ref].transitive_vulnerabilities;
+        components[ref].visited = allCopy[ref].visited;
+      }
+    });
+  }
 
   const stats = parseVulnerabilities(components);
-  const compKeys = Object.keys(components);
   const vulnKeys = Object.keys(stats.vulns);
-  if (compKeys.length === 0 || echartsAll.length === 0) {
+  if (compKeys.length === 0 || (!largeGraph && echartsAll.length === 0)) {
     el.innerHTML = emptyStateHtml('No dependency scan data is available for this project branch yet.');
     return;
   }
 
-  // ── components table ──
-  const compRows = compKeys.map(function (ref) {
-    const c = components[ref];
-    const depOn = Array.from(c.depends_on).filter(function (r) { return components[r]; });
-    const depOf = Array.from(c.dependency_of).filter(function (r) { return components[r]; });
-    const dirVulns = vulnBadgesHtml(c.vulnerabilities);
-    const transVulns = vulnBadgesHtml(c.transitive_vulnerabilities);
-    const lics = Array.from(c.license).map(function (l) {
-      return '<span class="sv-badge sv-license">' + escHtml(l) + '</span>';
-    }).join('<br>');
-    return '<tr>' +
-      '<td>' + compBadge(c) + '</td>' +
-      '<td>' + (depOn.length ? depOn.map(function (r) { return compBadge(components[r]); }).join('<br>') : '-') + '</td>' +
-      '<td>' + (depOf.length ? depOf.map(function (r) { return compBadge(components[r]); }).join('<br>') : '-') + '</td>' +
-      '<td>' + (dirVulns || '-') + '</td>' +
-      '<td>' + (transVulns || '-') + '</td>' +
-      '<td>' + (lics || '-') + '</td>' +
-      '</tr>';
-  });
-  const compTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-comp-tbl',
+  const compTableHtml = buildVirtualTableShell('sbomviz-comp-tbl',
     ['Component', 'Depends on', 'Dependency of', 'Direct vulns', 'Transitive vulns', 'License'],
-    compRows, true) + '</div>';
-
-  // ── vulnerabilities table ──
-  const vulnRows = vulnKeys.map(function (key) {
-    const v = stats.vulns[key];
-    const cls = badgeClass(v.severity, false);
-    const dirComps = Array.from(v.directly_vulnerable_components).filter(function (r) { return components[r]; });
-    const tranComps = Array.from(v.transitively_vulnerable_components).filter(function (r) { return components[r]; });
-    return '<tr>' +
-      '<td><span class="' + cls + '">' + escHtml(v.id) + '</span></td>' +
-      '<td>' + escHtml(capitalize(v.severity)) + '</td>' +
-      '<td>' + v.score + '</td>' +
-      '<td>' + escHtml(v.vector) + '</td>' +
-      '<td>' + (dirComps.length ? dirComps.map(function (r) { return compBadge(components[r]); }).join('<br>') : '-') + '</td>' +
-      '<td>' + (tranComps.length ? tranComps.map(function (r) { return compBadge(components[r]); }).join('<br>') : '-') + '</td>' +
-      '</tr>';
-  });
-  const vulnTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-vuln-tbl',
+    true);
+  const vulnTableHtml = buildVirtualTableShell('sbomviz-vuln-tbl',
     ['Vulnerability', 'Severity', 'Score', 'Vector', 'Directly vulnerable', 'Transitively vulnerable'],
-    vulnRows, true) + '</div>';
+    true);
+  const chartSectionHtml = largeGraph
+    ? '<div class="sbomviz-section">' +
+      '<div class="sv-chart-header">' +
+      '<div class="sv-legend">' +
+      '<span><span class="sv-badge sv-critical">&nbsp;</span> Critical</span>' +
+      '<span><span class="sv-badge sv-high">&nbsp;</span> High</span>' +
+      '<span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>' +
+      '<span><span class="sv-badge sv-low">&nbsp;</span> Low</span>' +
+      '<span><span class="sv-badge sv-info">&nbsp;</span> Info</span>' +
+      '<span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>' +
+      '</div>' +
+      '<span class="sv-generated-at">' +
+        'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
+        '&ensp;|&ensp;' +
+        'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
+      '</span>' +
+      '</div>' +
+      '<div class="sbomviz-empty">' +
+      'Dependency chart disabled for this large project (' + compKeys.length + ' components, ' + edgeCount + ' dependency relationships; configured limits: ' +
+      componentLimit + ' components, ' + edgeLimit + ' relationships). ' +
+      'The sunburst chart expands dependency paths into chart nodes and can exceed browser memory on graphs of this size. Use the searchable tables below.' +
+      '</div>' +
+      '</div>'
+    : [
+      '<div class="sbomviz-section">',
+      '  <div class="sv-chart-header">',
+      '    <div class="sv-legend">',
+      '      <span><span class="sv-badge sv-critical">&nbsp;</span> Critical</span>',
+      '      <span><span class="sv-badge sv-high">&nbsp;</span> High</span>',
+      '      <span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>',
+      '      <span><span class="sv-badge sv-low">&nbsp;</span> Low</span>',
+      '      <span><span class="sv-badge sv-info">&nbsp;</span> Info</span>',
+      '      <span><span class="sv-badge sv-direct">&nbsp;</span> Direct dep</span>',
+      '      <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitively affected</span>',
+      '      <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
+      '    </div>',
+      '    <span class="sv-generated-at">' +
+        'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
+        '&ensp;|&ensp;' +
+        'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
+      '</span>',
+      '  </div>',
+      '  <div class="sbomviz-radio-group">',
+      '    <label><input type="radio" name="sbomvizChart" value="all" checked> Show all components</label>',
+      '    <label><input type="radio" name="sbomvizChart" value="vuln"> Show only vulnerable components</label>',
+      '  </div>',
+      '  <p style="font-size:11px;color:#888;margin:4px 0 8px;">',
+      '    Click a segment to drill into its dependencies. The dark blue center circle that appears marks your current focus — click it to go back up.',
+      '  </p>',
+      '  <div id="sbomviz-chart-all" class="sbomviz-chart"></div>',
+      '  <div id="sbomviz-chart-vuln" class="sbomviz-chart" style="display:none">' +
+        '<div class="sbomviz-loading">Preparing vulnerable-components chart... <span class="sv-spinner"></span></div>' +
+      '</div>',
+      '</div>'
+    ].join('\n');
 
   // ── assemble page ──
   el.innerHTML = [
     '<div class="sbomviz">',
 
-    // chart section — no heading
-    '<div class="sbomviz-section">',
-    '  <div class="sv-chart-header">',
-    '    <div class="sv-legend">',
-    '      <span><span class="sv-badge sv-critical">&nbsp;</span> Critical</span>',
-    '      <span><span class="sv-badge sv-high">&nbsp;</span> High</span>',
-    '      <span><span class="sv-badge sv-medium">&nbsp;</span> Medium</span>',
-    '      <span><span class="sv-badge sv-low">&nbsp;</span> Low</span>',
-    '      <span><span class="sv-badge sv-info">&nbsp;</span> Info</span>',
-    '      <span><span class="sv-badge sv-direct">&nbsp;</span> Direct dep</span>',
-    '      <span><span class="sv-badge sv-transitive">&nbsp;</span> Transitively affected</span>',
-    '      <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
-    '    </div>',
-    '    <span class="sv-generated-at">' +
-      'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
-      '&ensp;|&ensp;' +
-      'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
-    '</span>',
-    '  </div>',
-    '  <div class="sbomviz-radio-group">',
-    '    <label><input type="radio" name="sbomvizChart" value="all" checked> Show all components</label>',
-    '    <label><input type="radio" name="sbomvizChart" value="vuln"> Show only vulnerable components</label>',
-    '  </div>',
-    '  <p style="font-size:11px;color:#888;margin:4px 0 8px;">',
-    '    Click a segment to drill into its dependencies. The dark blue center circle that appears marks your current focus — click it to go back up.',
-    '  </p>',
-    '  <div id="sbomviz-chart-all" class="sbomviz-chart"></div>',
-    '  <div id="sbomviz-chart-vuln" class="sbomviz-chart" style="display:none"></div>',
-    '</div>',
+    chartSectionHtml,
 
     '<h3 class="sbomviz-title">Components (' + compKeys.length + ')</h3>',
     '<div class="sbomviz-section">' + compTableHtml + '</div>',
@@ -934,34 +1074,107 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     '</div>'
   ].join('\n');
 
-  // init charts
-  // S7764 — use globalThis.echarts over window.echarts (window.registerExtension stays as-is)
-  const ec = globalThis.echarts;
-  const chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
-  const chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
-  chartAll.setOption(chartOpts(echartsAll));
-  chartVuln.setOption(chartOpts(echartsVuln));
+  if (!largeGraph) {
+    // init charts
+    // S7764 — use globalThis.echarts over window.echarts (window.registerExtension stays as-is)
+    const ec = globalThis.echarts;
+    const chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
+    chartAll.setOption(chartOpts(echartsAll));
 
-  // S6582 — use optional chaining; S7764 — globalThis
-  globalThis.addEventListener('resize', function () { chartAll.resize(); chartVuln.resize(); });
-
-  // radio toggle
-  const radios = document.querySelectorAll('input[name="sbomvizChart"]');
-  radios.forEach(function (radio) {
-    radio.addEventListener('change', function () {
-      if (this.value === 'all') {
-        document.getElementById('sbomviz-chart-all').style.display = '';
-        document.getElementById('sbomviz-chart-vuln').style.display = 'none';
-        chartAll.resize();
-      } else {
-        document.getElementById('sbomviz-chart-all').style.display = 'none';
-        document.getElementById('sbomviz-chart-vuln').style.display = '';
+    let chartVuln = null;
+    function ensureVulnChart() {
+      if (chartVuln) {
         chartVuln.resize();
+        return;
       }
-    });
-  });
+      const vulnCopy = vulnOnlyComponents(components);
+      const echartsVuln = buildEchartsData(vulnCopy);
+      chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
+      chartVuln.setOption(chartOpts(echartsVuln));
+      chartVuln.resize();
+    }
 
-  // paginate tables
-  paginateTable('sbomviz-comp-tbl');
-  paginateTable('sbomviz-vuln-tbl');
+    // S6582 — use optional chaining; S7764 — globalThis
+    globalThis.addEventListener('resize', function () {
+      chartAll.resize();
+      if (chartVuln) chartVuln.resize();
+    });
+
+    // radio toggle
+    const radios = document.querySelectorAll('input[name="sbomvizChart"]');
+    radios.forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        if (this.value === 'all') {
+          document.getElementById('sbomviz-chart-all').style.display = '';
+          document.getElementById('sbomviz-chart-vuln').style.display = 'none';
+          chartAll.resize();
+        } else {
+          document.getElementById('sbomviz-chart-all').style.display = 'none';
+          document.getElementById('sbomviz-chart-vuln').style.display = '';
+          ensureVulnChart();
+        }
+      });
+    });
+  }
+
+  const compRows = compKeys.map(function (ref) {
+    const c = components[ref];
+    const depOn = Array.from(c.depends_on).filter(function (r) { return components[r]; });
+    const depOf = Array.from(c.dependency_of).filter(function (r) { return components[r]; });
+    const lics = Array.from(c.license);
+    return {
+      cells: function () {
+        const dirVulns = vulnBadgesHtml(c.vulnerabilities);
+        const transVulns = vulnBadgesHtml(c.transitive_vulnerabilities);
+        const licsHtml = lics.slice(0, MAX_CELL_BADGES).map(function (l) {
+          return '<span class="sv-badge sv-license">' + escHtml(l) + '</span>';
+        }).join('<br>');
+        return [
+          compBadge(c),
+          depOn.length ? refsBadgesHtml(depOn, components) : '-',
+          depOf.length ? refsBadgesHtml(depOf, components) : '-',
+          dirVulns || '-',
+          transVulns || '-',
+          licsHtml || '-'
+        ];
+      },
+      search: [
+        compText(c).toLowerCase(),
+        refsText(depOn, components).toLowerCase(),
+        refsText(depOf, components).toLowerCase(),
+        vulnText(c.vulnerabilities).toLowerCase(),
+        vulnText(c.transitive_vulnerabilities).toLowerCase(),
+        lics.join(' ').toLowerCase()
+      ]
+    };
+  });
+  renderVirtualTable('sbomviz-comp-tbl', compRows);
+
+  const vulnRows = vulnKeys.map(function (key) {
+    const v = stats.vulns[key];
+    const cls = badgeClass(v.severity, false);
+    const dirComps = Array.from(v.directly_vulnerable_components).filter(function (r) { return components[r]; });
+    const tranComps = Array.from(v.transitively_vulnerable_components).filter(function (r) { return components[r]; });
+    return {
+      cells: function () {
+        return [
+          '<span class="' + cls + '">' + escHtml(v.id) + '</span>',
+          escHtml(capitalize(v.severity)),
+          escHtml(v.score),
+          escHtml(v.vector),
+          dirComps.length ? refsBadgesHtml(dirComps, components) : '-',
+          tranComps.length ? refsBadgesHtml(tranComps, components) : '-'
+        ];
+      },
+      search: [
+        String(v.id).toLowerCase(),
+        String(v.severity).toLowerCase(),
+        String(v.score).toLowerCase(),
+        String(v.vector).toLowerCase(),
+        refsText(dirComps, components).toLowerCase(),
+        refsText(tranComps, components).toLowerCase()
+      ]
+    };
+  });
+  renderVirtualTable('sbomviz-vuln-tbl', vulnRows);
 }

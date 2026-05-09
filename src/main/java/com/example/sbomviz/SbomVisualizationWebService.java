@@ -40,6 +40,7 @@ public class SbomVisualizationWebService implements WebService {
 
     // S1192 — duplicate string literals extracted to constants
     private static final String GENERATED_AT = "generatedAt";
+    private static final String LARGE_GRAPH_LIMITS = "largeGraphLimits";
     private static final String PARAM_PROJECT_KEY = "projectKey";
     private static final String APPLICATION_JSON = "application/json";
     private static final String FIELD_VULNERABILITIES = "vulnerabilities";
@@ -93,7 +94,7 @@ public class SbomVisualizationWebService implements WebService {
 
     private void getBranches(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
-        String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
+        String token = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
 
         if (token.isEmpty()) {
             writeJsonError(response, "SonarQube token not configured.");
@@ -118,7 +119,7 @@ public class SbomVisualizationWebService implements WebService {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
         String branch = request.param("branch");
         boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
-        String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
+        String token = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
 
         if (token.isEmpty()) {
             writeJsonError(response, "SonarQube token not configured. Please set it in Administration → Configuration → SBOM Visualization.");
@@ -147,7 +148,7 @@ public class SbomVisualizationWebService implements WebService {
             Optional<String> cached = checkCache(cacheFile, lastAnalysis, noCache, gson);
             if (cached.isPresent()) {
                 response.stream().setMediaType(APPLICATION_JSON);
-                response.stream().output().write(cached.get().getBytes(StandardCharsets.UTF_8));
+                response.stream().output().write(addSettingsToResponse(cached.get(), gson).getBytes(StandardCharsets.UTF_8));
                 return;
             }
 
@@ -179,6 +180,7 @@ public class SbomVisualizationWebService implements WebService {
             JsonObject result = new JsonObject();
             result.add("sbom", enriched);
             result.addProperty(GENERATED_AT, generatedAt);
+            addLargeGraphLimits(result);
             if (lastAnalysis != null) {
                 result.addProperty("lastAnalysisDate", DateTimeFormatter.ISO_INSTANT.format(lastAnalysis));
             }
@@ -196,6 +198,34 @@ public class SbomVisualizationWebService implements WebService {
         } catch (IOException e) {
             writeJsonError(response, "Failed to fetch data from SonarQube API: " + e.getMessage());
         }
+    }
+
+    private String addSettingsToResponse(String json, Gson gson) {
+        try {
+            JsonObject obj = gson.fromJson(json, JsonObject.class);
+            addLargeGraphLimits(obj);
+            return gson.toJson(obj);
+        } catch (Exception ignored) {
+            return json;
+        }
+    }
+
+    private void addLargeGraphLimits(JsonObject result) {
+        JsonObject limits = new JsonObject();
+        limits.addProperty("componentLimit", configuredPositiveInt(
+            SbomVisualizationPlugin.COMPONENT_LIMIT_KEY,
+            SbomVisualizationPlugin.DEFAULT_COMPONENT_LIMIT
+        ));
+        limits.addProperty("edgeLimit", configuredPositiveInt(
+            SbomVisualizationPlugin.EDGE_LIMIT_KEY,
+            SbomVisualizationPlugin.DEFAULT_EDGE_LIMIT
+        ));
+        result.add(LARGE_GRAPH_LIMITS, limits);
+    }
+
+    private int configuredPositiveInt(String key, int fallback) {
+        int value = configuration.getInt(key).orElse(fallback);
+        return value > 0 ? value : fallback;
     }
 
     private JsonArray fetchRisks(String baseUrl, String encodedKey, String branchSuffix,
