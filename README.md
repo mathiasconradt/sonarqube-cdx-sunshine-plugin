@@ -22,13 +22,17 @@ For each project it fetches the CycloneDX SBOM and dependency risk (CVE) data fr
 ## How it works
 
 1. A SonarQube token is stored once via the plugin's admin page.
-2. When a user opens the **SBOM Visualization** tab on a project, the plugin backend calls two SonarQube SCA APIs:
-   - `GET /api/v2/sca/sbom-reports?component={key}&type=cyclonedx` — the CycloneDX SBOM
-   - `GET /api/v2/sca/risk-reports?component={key}` — dependency vulnerability risks
-3. The Java backend merges CVE/risk data into the SBOM by matching `packageUrl` (purl).
+2. When a user opens the **SBOM Visualization** tab on a project, the plugin lists available branches and pre-selects the default branch. For the selected branch it calls:
+   - `GET /api/v2/sca/sbom-reports?component={key}&type=cyclonedx&branch={branch}` — the CycloneDX SBOM
+   - `GET /api/v2/sca/risk-reports?component={key}&branch={branch}` — dependency vulnerability risks
+   - `GET /api/project_analyses/search?project={key}&branch={branch}&ps=1` — last scan timestamp (for cache validation)
+3. The Java backend merges CVE/risk data into the SBOM by matching `packageUrl` (purl), then caches the result on the server filesystem. Subsequent loads for the same project/branch are served from cache as long as no new scan has run.
 4. The enriched CycloneDX JSON is passed to a JavaScript port of the Sunshine visualization engine, which renders:
+   - A branch selector dropdown (default branch pre-selected)
+   - A **↺ Refresh** button that bypasses the cache and forces regeneration
    - An interactive sunburst chart of all dependencies, color-coded by highest vulnerability severity
    - A toggle to show only vulnerable components
+   - Last scan and visualization generation timestamps (in browser local timezone)
    - A searchable, paginated components table with dependency relationships, direct/transitive vulnerabilities, and licenses
    - A searchable, paginated vulnerabilities table with affected components
 
