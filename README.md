@@ -87,15 +87,17 @@ docker restart sonarqube
 
 1. Log in to SonarQube as admin.
 2. Go to **Administration → Configuration → SBOM Visualization**.
-3. Enter a SonarQube token with permission to read project SBOM and SCA data and click **Save**.
+3. Configure the SonarQube token used to read project SBOM and SCA data.
+4. Optionally adjust the large project limits that switch the project page to table-only mode when dependency graphs are too large for browser rendering.
+5. Click **Save**.
 
-The token is stored as a global SonarQube setting (`sbomviz.sonar.token`).
+The plugin settings are stored as global SonarQube settings.
 
 ## Pages
 
 | Page | Location in SonarQube |
 |------|-----------------------|
-| Token configuration | Administration → Configuration → SBOM Visualization |
+| Plugin administration | Administration → Configuration → SBOM Visualization |
 | Per-project visualization | Project → Analysis → SBOM Visualization |
 
 ## License
