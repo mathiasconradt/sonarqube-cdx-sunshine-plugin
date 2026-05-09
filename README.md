@@ -107,3 +107,7 @@ Licensed under the **Apache License, Version 2.0** — see [LICENSE](LICENSE).
 
 > Copyright (c) Apache Software Foundation.
 > SPDX-License-Identifier: Apache-2.0
+
+## Disclaimer
+
+This is a community plugin. It is not an official plugin provided by Sonar, nor is it supported by Sonar. It has been tested with SonarQube Server 2026.1 and later releases.
