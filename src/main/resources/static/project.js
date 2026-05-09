@@ -22,6 +22,12 @@
  * preserved; adaptations were made for the SonarQube plugin environment.
  */
 
+function rowMatches(row, terms) {
+  return terms.every(function (term, ci) {
+    return !term || (row.search[ci] || '').includes(term);
+  });
+}
+
 window.registerExtension('sbomviz/project', function (options) {
   const el = options.el;
   // S6582 — use optional chaining instead of a && a.b
@@ -162,7 +168,7 @@ window.registerExtension('sbomviz/project', function (options) {
             try {
               data = JSON.parse(body);
             } catch (e) {
-              throw new Error('Unexpected response from SBOM Visualization API.');
+              throw new Error('Unexpected response from SBOM Visualization API: ' + e.message);
             }
           }
           if (!r.ok) {
@@ -860,12 +866,6 @@ function renderVirtualTable(id, rows) {
   let currentPage = 1;
   let filtered = rows;
 
-  function rowMatches(row, terms) {
-    return terms.every(function (term, ci) {
-      return !term || (row.search[ci] || '').includes(term);
-    });
-  }
-
   function addPagerButton(label, page, disabled, active) {
     const btn = document.createElement('button');
     btn.textContent = label;
@@ -999,6 +999,12 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
   const vulnTableHtml = buildVirtualTableShell('sbomviz-vuln-tbl',
     ['Vulnerability', 'Severity', 'Score', 'Vector', 'Directly vulnerable', 'Transitively vulnerable'],
     true);
+  const lastScanLabel = lastAnalysisDate
+    ? escHtml(new Date(lastAnalysisDate).toLocaleString())
+    : 'n/a';
+  const generatedAtLabel = generatedAt
+    ? escHtml(new Date(generatedAt).toLocaleString())
+    : 'n/a';
   const chartSectionHtml = largeGraph
     ? '<div class="sbomviz-section">' +
       '<div class="sv-chart-header">' +
@@ -1011,9 +1017,9 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       '<span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>' +
       '</div>' +
       '<span class="sv-generated-at">' +
-        'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
+        'Last scan: ' + lastScanLabel +
         '&ensp;|&ensp;' +
-        'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
+        'Generated: ' + generatedAtLabel +
       '</span>' +
       '</div>' +
       '<div class="sbomviz-empty">' +
@@ -1036,9 +1042,9 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       '      <span><span class="sv-badge sv-clean">&nbsp;</span> Clean</span>',
       '    </div>',
       '    <span class="sv-generated-at">' +
-        'Last scan: ' + (lastAnalysisDate ? escHtml(new Date(lastAnalysisDate).toLocaleString()) : 'n/a') +
+        'Last scan: ' + lastScanLabel +
         '&ensp;|&ensp;' +
-        'Generated: ' + (generatedAt ? escHtml(new Date(generatedAt).toLocaleString()) : 'n/a') +
+        'Generated: ' + generatedAtLabel +
       '</span>',
       '  </div>',
       '  <div class="sbomviz-radio-group">',

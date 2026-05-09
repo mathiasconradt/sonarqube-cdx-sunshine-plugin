@@ -10,6 +10,14 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+function settingMap(settings) {
+  const map = {};
+  (settings || []).forEach(function (setting) {
+    map[setting.key] = setting.value;
+  });
+  return map;
+}
+
 window.registerExtension('sbomviz/admin', function (options) {
   const el = options.el;
   const TOKEN_KEY = 'sbomviz.sonar.token';
@@ -97,14 +105,6 @@ window.registerExtension('sbomviz/admin', function (options) {
     // S6594 — use RegExp.exec() instead of String.match()
     const m = /(?:^|;\s*)XSRF-TOKEN=([^;]*)/.exec(document.cookie);
     return m ? decodeURIComponent(m[1]) : '';
-  }
-
-  function settingMap(settings) {
-    const map = {};
-    (settings || []).forEach(function (setting) {
-      map[setting.key] = setting.value;
-    });
-    return map;
   }
 
   function positiveIntValue(input, label) {
