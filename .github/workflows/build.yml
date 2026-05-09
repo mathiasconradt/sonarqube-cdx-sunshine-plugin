@@ -33,6 +33,7 @@ jobs:
         run: |
           mvn --batch-mode sonar:sonar \
             -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.organization=mathiasconradt \
             -Dsonar.token=$SONAR_TOKEN
 
       - name: Upload plugin JAR (workflow artifact)
