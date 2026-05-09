@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.example.sbomviz;
+package io.github.mathiasconradt.sbomviz;
 
 import com.google.gson.*;
 import org.sonar.api.config.Configuration;

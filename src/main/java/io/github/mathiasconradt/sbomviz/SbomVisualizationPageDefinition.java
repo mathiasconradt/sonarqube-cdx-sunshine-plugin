@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.example.sbomviz;
+package io.github.mathiasconradt.sbomviz;
 
 import org.sonar.api.web.page.Context;
 import org.sonar.api.web.page.Page;

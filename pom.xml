@@ -6,7 +6,7 @@
 
   <groupId>io.github.mathiasconradt</groupId>
   <artifactId>sonarqube-cdx-sunshine-plugin</artifactId>
-  <version>0.1.5</version>
+  <version>0.1.6</version>
   <packaging>sonar-plugin</packaging>
 
   <name>SBOM Visualization</name>
@@ -42,7 +42,7 @@
         <extensions>true</extensions>
         <configuration>
           <pluginKey>sbomviz</pluginKey>
-          <pluginClass>com.example.sbomviz.SbomVisualizationPlugin</pluginClass>
+          <pluginClass>io.github.mathiasconradt.sbomviz.SbomVisualizationPlugin</pluginClass>
           <pluginName>SBOM Visualization</pluginName>
           <pluginApiMinVersion>12.0.0.2960</pluginApiMinVersion>
         </configuration>
