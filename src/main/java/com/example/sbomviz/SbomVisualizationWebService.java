@@ -33,9 +33,16 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @ServerSide
 public class SbomVisualizationWebService implements WebService {
+
+    // S1192 — duplicate string literals extracted to constants
+    private static final String GENERATED_AT = "generatedAt";
+    private static final String PARAM_PROJECT_KEY = "projectKey";
+    private static final String APPLICATION_JSON = "application/json";
+    private static final String FIELD_VULNERABILITIES = "vulnerabilities";
 
     private final Configuration configuration;
     private final Path cacheDir;
@@ -46,6 +53,7 @@ public class SbomVisualizationWebService implements WebService {
         try {
             Files.createDirectories(cacheDir);
         } catch (IOException ignored) {
+            // intentional
         }
     }
 
@@ -58,7 +66,7 @@ public class SbomVisualizationWebService implements WebService {
             .setDescription("Get enriched SBOM data for a project")
             .setHandler(this::getData)
             .setInternal(true);
-        dataAction.createParam("projectKey")
+        dataAction.createParam(PARAM_PROJECT_KEY)
             .setRequired(true)
             .setDescription("The SonarQube project key");
         dataAction.createParam("branch")
@@ -72,7 +80,7 @@ public class SbomVisualizationWebService implements WebService {
             .setDescription("List branches for a project")
             .setHandler(this::getBranches)
             .setInternal(true);
-        branchesAction.createParam("projectKey")
+        branchesAction.createParam(PARAM_PROJECT_KEY)
             .setRequired(true)
             .setDescription("The SonarQube project key");
 
@@ -80,7 +88,7 @@ public class SbomVisualizationWebService implements WebService {
     }
 
     private void getBranches(Request request, Response response) throws Exception {
-        String projectKey = request.mandatoryParam("projectKey");
+        String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
         String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
 
         if (token.isEmpty()) {
@@ -95,7 +103,7 @@ public class SbomVisualizationWebService implements WebService {
                 baseUrl + "/api/project_branches/list?project=" + encodedKey,
                 token, null
             );
-            response.stream().setMediaType("application/json");
+            response.stream().setMediaType(APPLICATION_JSON);
             response.stream().output().write(branchesJson.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             writeJsonError(response, "Failed to fetch branches: " + e.getMessage());
@@ -103,7 +111,7 @@ public class SbomVisualizationWebService implements WebService {
     }
 
     private void getData(Request request, Response response) throws Exception {
-        String projectKey = request.mandatoryParam("projectKey");
+        String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
         String branch = request.param("branch");
         boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
         String token = configuration.get("sbomviz.sonar.token").orElse("").trim();
@@ -127,22 +135,11 @@ public class SbomVisualizationWebService implements WebService {
 
             // check cache (skip if noCache=true)
             Path cacheFile = cacheFile(projectKey, branch);
-            if (!noCache && lastAnalysis != null && Files.exists(cacheFile)) {
-                try {
-                    String cached = new String(Files.readAllBytes(cacheFile), StandardCharsets.UTF_8);
-                    JsonObject cachedObj = gson.fromJson(cached, JsonObject.class);
-                    if (cachedObj.has("generatedAt")) {
-                        Instant cachedAt = Instant.parse(cachedObj.get("generatedAt").getAsString());
-                        if (!cachedAt.isBefore(lastAnalysis)) {
-                            // cache is fresh
-                            response.stream().setMediaType("application/json");
-                            response.stream().output().write(cached.getBytes(StandardCharsets.UTF_8));
-                            return;
-                        }
-                    }
-                } catch (Exception ignored) {
-                    // corrupt cache — fall through to refresh
-                }
+            Optional<String> cached = checkCache(cacheFile, lastAnalysis, noCache, gson);
+            if (cached.isPresent()) {
+                response.stream().setMediaType(APPLICATION_JSON);
+                response.stream().output().write(cached.get().getBytes(StandardCharsets.UTF_8));
+                return;
             }
 
             // fetch fresh data
@@ -163,7 +160,7 @@ public class SbomVisualizationWebService implements WebService {
             String generatedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
             JsonObject result = new JsonObject();
             result.add("sbom", enriched);
-            result.addProperty("generatedAt", generatedAt);
+            result.addProperty(GENERATED_AT, generatedAt);
             if (lastAnalysis != null) {
                 result.addProperty("lastAnalysisDate", DateTimeFormatter.ISO_INSTANT.format(lastAnalysis));
             }
@@ -171,16 +168,48 @@ public class SbomVisualizationWebService implements WebService {
             String resultJson = gson.toJson(result);
 
             // write to cache
-            try {
-                Files.write(cacheFile, resultJson.getBytes(StandardCharsets.UTF_8));
-            } catch (IOException ignored) {
-            }
+            writeCacheFile(cacheFile, resultJson);
 
-            response.stream().setMediaType("application/json");
+            response.stream().setMediaType(APPLICATION_JSON);
             response.stream().output().write(resultJson.getBytes(StandardCharsets.UTF_8));
 
         } catch (IOException e) {
             writeJsonError(response, "Failed to fetch data from SonarQube API: " + e.getMessage());
+        }
+    }
+
+    // S3776 — extracted from getData to reduce cognitive complexity
+    private Optional<String> checkCache(Path cacheFile, Instant lastAnalysis, boolean noCache, Gson gson) {
+        if (noCache || lastAnalysis == null || !Files.exists(cacheFile)) {
+            return Optional.empty();
+        }
+        return readFromCache(cacheFile, gson, lastAnalysis);
+    }
+
+    // S1141 — extracted inner try block from getData
+    private Optional<String> readFromCache(Path cacheFile, Gson gson, Instant lastAnalysis) {
+        try {
+            String cached = new String(Files.readAllBytes(cacheFile), StandardCharsets.UTF_8);
+            JsonObject cachedObj = gson.fromJson(cached, JsonObject.class);
+            if (cachedObj.has(GENERATED_AT)) {
+                Instant cachedAt = Instant.parse(cachedObj.get(GENERATED_AT).getAsString());
+                if (!cachedAt.isBefore(lastAnalysis)) {
+                    // cache is fresh
+                    return Optional.of(cached);
+                }
+            }
+        } catch (Exception ignored) {
+            // corrupt cache — fall through to refresh
+        }
+        return Optional.empty();
+    }
+
+    // S1141 — extracted cache-write try block from getData
+    private void writeCacheFile(Path cacheFile, String content) {
+        try {
+            Files.write(cacheFile, content.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ignored) {
+            // intentional
         }
     }
 
@@ -198,15 +227,26 @@ public class SbomVisualizationWebService implements WebService {
                 if (analyses.size() > 0) {
                     String date = analyses.get(0).getAsJsonObject().get("date").getAsString();
                     // SQ returns "+0000" (no colon); try ISO first, then pattern-based fallback
-                    try {
-                        return Instant.from(DateTimeFormatter.ISO_OFFSET_DATE_TIME.parse(date));
-                    } catch (Exception e) {
-                        return OffsetDateTime.parse(date,
-                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ")).toInstant();
+                    Instant parsed = parseInstant(date);
+                    if (parsed != null) {
+                        return parsed;
                     }
+                    return OffsetDateTime.parse(date,
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ")).toInstant();
                 }
             }
         } catch (Exception ignored) {
+            // intentional
+        }
+        return null;
+    }
+
+    // S1141 — extracted inner try from fetchLastAnalysisDate
+    private Instant parseInstant(String date) {
+        try {
+            return Instant.from(DateTimeFormatter.ISO_OFFSET_DATE_TIME.parse(date));
+        } catch (Exception ignored) {
+            // intentional — fall through to pattern-based fallback in caller
         }
         return null;
     }
@@ -226,7 +266,7 @@ public class SbomVisualizationWebService implements WebService {
     private void writeJsonError(Response response, String message) throws IOException {
         JsonObject err = new JsonObject();
         err.addProperty("error", message);
-        response.stream().setMediaType("application/json");
+        response.stream().setMediaType(APPLICATION_JSON);
         response.stream().output().write(new Gson().toJson(err).getBytes(StandardCharsets.UTF_8));
     }
 
@@ -272,21 +312,26 @@ public class SbomVisualizationWebService implements WebService {
             for (JsonElement el : sbom.getAsJsonArray("components")) {
                 if (!el.isJsonObject()) continue;
                 JsonObject comp = el.getAsJsonObject();
-                if (!comp.has("purl")) continue;
-                String purl = comp.get("purl").getAsString();
-                JsonArray matching = risksMap.get(purl);
-                if (matching == null) continue;
-
-                if (!comp.has("vulnerabilities")) {
-                    comp.add("vulnerabilities", new JsonArray());
-                }
-                JsonArray vulns = comp.getAsJsonArray("vulnerabilities");
-                for (JsonElement riskEl : matching) {
-                    vulns.add(formatVulnerability(riskEl.getAsJsonObject()));
-                }
+                applyRisksToComponent(comp, risksMap);
             }
         }
         return sbom;
+    }
+
+    // S3776 — extracted from mergeRisksIntoSbom inner loop to reduce cognitive complexity
+    private void applyRisksToComponent(JsonObject comp, Map<String, JsonArray> risksMap) {
+        if (!comp.has("purl")) return;
+        String purl = comp.get("purl").getAsString();
+        JsonArray matching = risksMap.get(purl);
+        if (matching == null) return;
+
+        if (!comp.has(FIELD_VULNERABILITIES)) {
+            comp.add(FIELD_VULNERABILITIES, new JsonArray());
+        }
+        JsonArray vulns = comp.getAsJsonArray(FIELD_VULNERABILITIES);
+        for (JsonElement riskEl : matching) {
+            vulns.add(formatVulnerability(riskEl.getAsJsonObject()));
+        }
     }
 
     private JsonObject formatVulnerability(JsonObject risk) {
@@ -307,18 +352,29 @@ public class SbomVisualizationWebService implements WebService {
         ratings.add(rating);
         vuln.add("ratings", ratings);
 
+        // S3776 — CWE parsing extracted to parseCwes
         if (risk.has("cweIds")) {
-            JsonArray cwes = new JsonArray();
-            for (JsonElement cweEl : risk.getAsJsonArray("cweIds")) {
-                String cwe = cweEl.getAsString();
-                if (cwe.contains("-")) {
-                    try { cwes.add(Integer.parseInt(cwe.split("-")[1])); } catch (NumberFormatException ignored) {}
-                }
-            }
+            JsonArray cwes = parseCwes(risk);
             if (cwes.size() > 0) vuln.add("cwes", cwes);
         }
         if (risk.has("riskTitle")) vuln.addProperty("description", risk.get("riskTitle").getAsString());
         return vuln;
+    }
+
+    // S3776 — extracted CWE parsing from formatVulnerability
+    private JsonArray parseCwes(JsonObject risk) {
+        JsonArray cwes = new JsonArray();
+        for (JsonElement cweEl : risk.getAsJsonArray("cweIds")) {
+            String cwe = cweEl.getAsString();
+            if (cwe.contains("-")) {
+                try {
+                    cwes.add(Integer.parseInt(cwe.split("-")[1]));
+                } catch (NumberFormatException ignored) {
+                    // intentional
+                }
+            }
+        }
+        return cwes;
     }
 
     private String mapSeverity(String s) {

@@ -11,9 +11,9 @@
  */
 
 window.registerExtension('sbomviz/admin', function (options) {
-  var el = options.el;
+  const el = options.el;
 
-  var style = document.createElement('style');
+  const style = document.createElement('style');
   style.textContent = [
     '.sbomviz-admin { max-width: 600px; margin: 32px auto; font-family: sans-serif; }',
     '.sbomviz-admin h2 { margin-bottom: 24px; }',
@@ -47,9 +47,9 @@ window.registerExtension('sbomviz/admin', function (options) {
     '</div>'
   ].join('\n');
 
-  var tokenInput = document.getElementById('sbomviz-token-input');
-  var saveBtn = document.getElementById('sbomviz-save-btn');
-  var msgDiv = document.getElementById('sbomviz-msg');
+  const tokenInput = document.getElementById('sbomviz-token-input');
+  const saveBtn = document.getElementById('sbomviz-save-btn');
+  const msgDiv = document.getElementById('sbomviz-msg');
 
   function showMsg(text, type) {
     msgDiv.textContent = text;
@@ -58,7 +58,8 @@ window.registerExtension('sbomviz/admin', function (options) {
   }
 
   function csrfToken() {
-    var m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+    // S6594 — use RegExp.exec() instead of String.match()
+    const m = /(?:^|;\s*)XSRF-TOKEN=([^;]*)/.exec(document.cookie);
     return m ? decodeURIComponent(m[1]) : '';
   }
 
@@ -68,7 +69,7 @@ window.registerExtension('sbomviz/admin', function (options) {
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (data.settings && data.settings.length > 0) {
-        var setting = data.settings[0];
+        const setting = data.settings[0];
         if (setting.value && setting.value.length > 0) {
           tokenInput.placeholder = '(token is set — enter a new value to replace)';
         }
@@ -77,7 +78,7 @@ window.registerExtension('sbomviz/admin', function (options) {
     .catch(function () {});
 
   saveBtn.addEventListener('click', function () {
-    var val = tokenInput.value.trim();
+    const val = tokenInput.value.trim();
     if (!val) {
       showMsg('Please enter a token value.', 'error');
       return;
@@ -86,7 +87,7 @@ window.registerExtension('sbomviz/admin', function (options) {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving...';
 
-    var body = 'key=sbomviz.sonar.token&value=' + encodeURIComponent(val);
+    const body = 'key=sbomviz.sonar.token&value=' + encodeURIComponent(val);
     fetch('/api/settings/set', {
       method: 'POST',
       headers: {
@@ -118,6 +119,7 @@ window.registerExtension('sbomviz/admin', function (options) {
 
   return function () {
     el.innerHTML = '';
-    if (style.parentNode) style.parentNode.removeChild(style);
+    // S7762 — use .remove() instead of parentNode.removeChild()
+    style.remove();
   };
 });

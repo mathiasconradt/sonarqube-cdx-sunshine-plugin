@@ -23,11 +23,12 @@
  */
 
 window.registerExtension('sbomviz/project', function (options) {
-  var el = options.el;
-  var projectKey = (options.component && options.component.key) ||
-    new URLSearchParams(window.location.search).get('id');
+  const el = options.el;
+  // S6582 — use optional chaining instead of a && a.b
+  const projectKey = options.component?.key ||
+    new URLSearchParams(globalThis.location.search).get('id');
 
-  var injectedStyle = null;
+  let injectedStyle = null;
 
   function injectStyles() {
     injectedStyle = document.createElement('style');
@@ -112,25 +113,26 @@ window.registerExtension('sbomviz/project', function (options) {
   el.style.padding   = '16px';
   el.innerHTML = '<div class="sbomviz"><div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div></div>';
 
+  // S7761 — use .dataset instead of setAttribute('data-...')
   // load bundled echarts (served from same origin — allowed by CSP script-src 'self')
   function loadEcharts() {
-    if (window.echarts) return Promise.resolve();
+    if (globalThis.echarts) return Promise.resolve();
     return new Promise(function (resolve, reject) {
-      var existing = document.querySelector('script[data-sbomviz-echarts]');
+      const existing = document.querySelector('script[data-sbomviz-echarts]');
       if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
-      var s = document.createElement('script');
+      const s = document.createElement('script');
       s.src = '/static/sbomviz/echarts.min.js';
-      s.setAttribute('data-sbomviz-echarts', '1');
+      s.dataset.sbomvizEcharts = '1';
       s.addEventListener('load', resolve);
       s.addEventListener('error', function () { reject(new Error('Failed to load echarts')); });
       document.head.appendChild(s);
     });
   }
 
-  var selectedBranch = null;
+  let selectedBranch = null;
 
   function fetchSbomData(branch, noCache) {
-    var url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
+    let url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
     if (branch) url += '&branch=' + encodeURIComponent(branch);
     if (noCache) url += '&noCache=true';
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -138,12 +140,12 @@ window.registerExtension('sbomviz/project', function (options) {
   }
 
   function loadAndRender(branch, noCache) {
-    var vizDiv = document.getElementById('sbomviz-viz');
+    const vizDiv = document.getElementById('sbomviz-viz');
     if (vizDiv) vizDiv.innerHTML = '<div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div>';
 
     Promise.all([loadEcharts(), fetchSbomData(branch, noCache)])
       .then(function (results) {
-        var data = results[1];
+        const data = results[1];
         if (vizDiv) {
           if (data.error) {
             vizDiv.innerHTML = '<div class="sbomviz-error"><strong>Error:</strong> ' + escHtml(data.error) + '</div>';
@@ -167,18 +169,19 @@ window.registerExtension('sbomviz/project', function (options) {
   })
     .then(function (r) { return r.json(); })
     .then(function (data) {
-      var branches = (data.branches || []).sort(function (a, b) {
+      const branches = (data.branches || []).sort(function (a, b) {
         if (a.isMain) return -1;
         if (b.isMain) return 1;
         return a.name.localeCompare(b.name);
       });
 
-      var defaultBranch = branches.find(function (b) { return b.isMain; });
+      const defaultBranch = branches.find(function (b) { return b.isMain; });
       selectedBranch = defaultBranch ? defaultBranch.name : (branches[0] ? branches[0].name : null);
 
-      var branchBarHtml = '';
+      // S3358 — extracted nested ternary into if/else
+      let branchBarHtml = '';
       if (branches.length > 0) {
-        var options = branches.map(function (b) {
+        const options = branches.map(function (b) {
           return '<option value="' + escHtml(b.name) + '"' +
             (b.name === selectedBranch ? ' selected' : '') + '>' +
             escHtml(b.name) + (b.isMain ? ' (default)' : '') + '</option>';
@@ -195,7 +198,7 @@ window.registerExtension('sbomviz/project', function (options) {
         '<div id="sbomviz-viz"><div class="sbomviz-loading">Loading SBOM data… <span class="sv-spinner"></span></div></div>' +
         '</div>';
 
-      var select = document.getElementById('sbomviz-branch-select');
+      const select = document.getElementById('sbomviz-branch-select');
       if (select) {
         select.addEventListener('change', function () {
           selectedBranch = this.value;
@@ -203,7 +206,7 @@ window.registerExtension('sbomviz/project', function (options) {
         });
       }
 
-      var refreshBtn = document.getElementById('sbomviz-refresh-btn');
+      const refreshBtn = document.getElementById('sbomviz-refresh-btn');
       if (refreshBtn) {
         refreshBtn.addEventListener('click', function () {
           loadAndRender(selectedBranch, true);
@@ -222,7 +225,9 @@ window.registerExtension('sbomviz/project', function (options) {
 
   return function () {
     el.innerHTML = '';
-    if (injectedStyle && injectedStyle.parentNode) injectedStyle.parentNode.removeChild(injectedStyle);
+    // S7762 — use .remove() instead of parentNode.removeChild()
+    // S6582 — use optional chaining
+    injectedStyle?.remove();
   };
 });
 
@@ -230,22 +235,23 @@ window.registerExtension('sbomviz/project', function (options) {
 
 function escHtml(s) {
   if (s == null) return '';
+  // S7781 — use replaceAll() over replace() with global regex
   return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
 // ─── severity constants ───────────────────────────────────────────────────────
 
-var VALID_SEVERITIES = {
+const VALID_SEVERITIES = {
   critical: 4, high: 3, medium: 2, low: 1,
   info: 0, information: 0, unknown: -1, clean: -2
 };
-var PREFERRED_METHODS = ['CVSSv4', 'CVSSv31', 'CVSSv3', 'CVSSv2', 'OWASP', 'SSVC', 'other'];
+const PREFERRED_METHODS = ['CVSSv4', 'CVSSv31', 'CVSSv3', 'CVSSv2', 'OWASP', 'SSVC', 'other'];
 
-var STYLES = {
+const STYLES = {
   critical:    { color: '#a10a0a', borderWidth: 2 },
   high:        { color: '#ff4633', borderWidth: 2 },
   medium:      { color: '#ff9335', borderWidth: 2 },
@@ -270,7 +276,8 @@ function badgeClass(sev, hasTransitive) {
 // ─── vulnerability parsing ────────────────────────────────────────────────────
 
 function getSeverityByScore(score) {
-  score = parseFloat(score);
+  // S7773 — use Number.parseFloat over parseFloat
+  score = Number.parseFloat(score);
   if (score >= 9) return 'critical';
   if (score >= 7) return 'high';
   if (score >= 4) return 'medium';
@@ -278,36 +285,74 @@ function getSeverityByScore(score) {
   return 'information';
 }
 
+// S3776 — extracted helpers to reduce cognitive complexity of parseVulnerabilityData
+function extractRatingBySeverity(rating) {
+  if (rating.severity && VALID_SEVERITIES[rating.severity.toLowerCase()] !== undefined) {
+    const sev = rating.severity.toLowerCase() === 'info' ? 'information' : rating.severity.toLowerCase();
+    const score = rating.score != null ? Number.parseFloat(rating.score) : 0;
+    const vector = rating.vector || '-';
+    return { severity: sev, score, vector };
+  }
+  return null;
+}
+
+function extractRatingByScore(rating) {
+  if (rating.score != null) {
+    return {
+      severity: getSeverityByScore(rating.score),
+      score: Number.parseFloat(rating.score),
+      vector: rating.vector || '-'
+    };
+  }
+  return null;
+}
+
 function parseVulnerabilityData(vuln) {
-  var vulnId = vuln.id || 'UNKNOWN';
-  var vulnSeverity = null, vulnScore = 0.0, vulnVector = '-';
+  const vulnId = vuln.id || 'UNKNOWN';
+  // S7748 — remove zero fraction: 0.0 → 0
+  let vulnSeverity = null, vulnScore = 0, vulnVector = '-';
 
   if (vuln.ratings && vuln.ratings.length > 0) {
-    outer: for (var mi = 0; mi < PREFERRED_METHODS.length; mi++) {
-      var method = PREFERRED_METHODS[mi];
-      for (var ri = 0; ri < vuln.ratings.length; ri++) {
-        var rating = vuln.ratings[ri];
-        if (!rating.method || rating.method !== method) continue;
-        if (rating.severity && VALID_SEVERITIES[rating.severity.toLowerCase()] !== undefined) {
-          vulnSeverity = rating.severity.toLowerCase() === 'info' ? 'information' : rating.severity.toLowerCase();
-          if (rating.score != null) vulnScore = parseFloat(rating.score);
-          if (rating.vector) vulnVector = rating.vector;
-        } else if (rating.score != null) {
-          vulnSeverity = getSeverityByScore(rating.score);
-          vulnScore = parseFloat(rating.score);
-          if (rating.vector) vulnVector = rating.vector;
+    // S4138 — use for-of over indexed loops; S135 — use boolean flag instead of labeled break
+    let found = false;
+    for (const method of PREFERRED_METHODS) {
+      if (found) break;
+      for (const rating of vuln.ratings) {
+        const bySev = extractRatingBySeverity(rating);
+        if (bySev && rating.method === method) {
+          vulnSeverity = bySev.severity;
+          vulnScore = bySev.score;
+          vulnVector = bySev.vector;
+          found = true;
+          break;
         }
-        if (vulnSeverity !== null) break outer;
+        const byScore = extractRatingByScore(rating);
+        if (byScore && rating.method === method) {
+          vulnSeverity = byScore.severity;
+          vulnScore = byScore.score;
+          vulnVector = byScore.vector;
+          found = true;
+          break;
+        }
       }
     }
+    // S2681 — add braces to all if blocks; S4138 — use for-of
     if (vulnSeverity === null) {
-      for (var ri2 = 0; ri2 < vuln.ratings.length; ri2++) {
-        var r = vuln.ratings[ri2];
-        if (r.severity && VALID_SEVERITIES[r.severity.toLowerCase()] !== undefined) {
-          vulnSeverity = r.severity.toLowerCase(); vulnScore = r.score ? parseFloat(r.score) : 0;
-          if (r.vector) vulnVector = r.vector; break;
+      for (const r of vuln.ratings) {
+        const bySev = extractRatingBySeverity(r);
+        if (bySev) {
+          vulnSeverity = bySev.severity;
+          vulnScore = bySev.score;
+          vulnVector = bySev.vector;
+          break;
         }
-        if (r.score != null) { vulnSeverity = getSeverityByScore(r.score); vulnScore = parseFloat(r.score); if (r.vector) vulnVector = r.vector; break; }
+        const byScore = extractRatingByScore(r);
+        if (byScore) {
+          vulnSeverity = byScore.severity;
+          vulnScore = byScore.score;
+          vulnVector = byScore.vector;
+          break;
+        }
       }
     }
   }
@@ -318,12 +363,13 @@ function parseVulnerabilityData(vuln) {
 // ─── license parsing ──────────────────────────────────────────────────────────
 
 function parseLicenses(comp) {
-  var lics = new Set();
+  const lics = new Set();
   if (!comp.licenses) return lics;
   comp.licenses.forEach(function (l) {
-    if (l.license && l.license.id)   { lics.add(l.license.id); return; }
-    if (l.license && l.license.name) { lics.add(l.license.name); return; }
-    if (l.expression)                { lics.add(l.expression); }
+    // S6582 — use optional chaining
+    if (l.license?.id)   { lics.add(l.license.id); return; }
+    if (l.license?.name) { lics.add(l.license.name); return; }
+    if (l.expression)    { lics.add(l.expression); }
   });
   return lics;
 }
@@ -356,10 +402,10 @@ function vulnUniq(arr, vd) {
 }
 
 function parseJsonData(data) {
-  var components = {};
+  const components = {};
 
   if (data.metadata && data.metadata.component) {
-    var mc = data.metadata.component;
+    const mc = data.metadata.component;
     components[refOf(mc)] = mkComp(mc);
   }
 
@@ -370,7 +416,7 @@ function parseJsonData(data) {
 
   if (data.dependencies) {
     data.dependencies.forEach(function (dep) {
-      var ref = dep.ref;
+      const ref = dep.ref;
       if (!components[ref]) components[ref] = mkFake(ref);
       (dep.dependsOn || []).forEach(function (child) {
         if (!components[child]) components[child] = mkFake(child);
@@ -383,33 +429,35 @@ function parseJsonData(data) {
   ['components', 'services'].forEach(function (key) {
     if (!data[key]) return;
     data[key].forEach(function (c) {
-      var ref = refOf(c);
+      const ref = refOf(c);
       // inner deps
       (c.dependencies || []).forEach(function (dep) {
-        var child = dep.ref;
+        const child = dep.ref;
         if (!components[child]) components[child] = mkFake(child);
         components[ref].depends_on.add(child);
         components[child].dependency_of.add(ref);
       });
       // component-level vulnerabilities
       (c.vulnerabilities || []).forEach(function (v) {
-        var vd = parseVulnerabilityData(v);
+        const vd = parseVulnerabilityData(v);
         if (!vulnUniq(components[ref].vulnerabilities, vd)) components[ref].vulnerabilities.push(vd);
-        if (VALID_SEVERITIES[vd.severity] > VALID_SEVERITIES[components[ref].max_vulnerability_severity])
+        if (VALID_SEVERITIES[vd.severity] > VALID_SEVERITIES[components[ref].max_vulnerability_severity]) {
           components[ref].max_vulnerability_severity = vd.severity;
+        }
       });
     });
   });
 
   // top-level vulnerabilities
   (data.vulnerabilities || []).forEach(function (v) {
-    var vd = parseVulnerabilityData(v);
+    const vd = parseVulnerabilityData(v);
     (v.affects || []).forEach(function (a) {
-      var ref = a.ref;
+      const ref = a.ref;
       if (!components[ref]) components[ref] = mkFake(ref);
       if (!vulnUniq(components[ref].vulnerabilities, vd)) components[ref].vulnerabilities.push(vd);
-      if (VALID_SEVERITIES[vd.severity] > VALID_SEVERITIES[components[ref].max_vulnerability_severity])
+      if (VALID_SEVERITIES[vd.severity] > VALID_SEVERITIES[components[ref].max_vulnerability_severity]) {
         components[ref].max_vulnerability_severity = vd.severity;
+      }
     });
   });
 
@@ -417,9 +465,10 @@ function parseJsonData(data) {
 }
 
 function parseMetadata(data) {
-  var info = {};
+  const info = {};
   if (data.metadata && data.metadata.component) {
-    var mc = data.metadata.component, mc_info = {};
+    const mc = data.metadata.component;
+    const mc_info = {};
     if (mc.type)    mc_info['Type']    = mc.type;
     if (mc.name)    mc_info['Name']    = mc.name;
     if (mc.version) mc_info['Version'] = mc.version;
@@ -433,17 +482,17 @@ function parseMetadata(data) {
 // ─── purge duplicates ─────────────────────────────────────────────────────────
 
 function purgeComponents(components) {
-  var seen = {}, doubles = {};
+  const seen = {}, doubles = {};
   Object.keys(components).forEach(function (ref) {
-    var c = components[ref];
-    var id = (c.name || '-') + '--' + (c.version || '-');
+    const c = components[ref];
+    const id = (c.name || '-') + '--' + (c.version || '-');
     if (seen[id]) doubles[ref] = seen[id]; else seen[id] = ref;
   });
   Object.keys(doubles).forEach(function (dRef) {
-    var oRef = doubles[dRef];
+    const oRef = doubles[dRef];
     delete components[dRef];
     Object.keys(components).forEach(function (ref) {
-      var c = components[ref];
+      const c = components[ref];
       if (c.dependency_of.has(dRef)) { c.dependency_of.delete(dRef); c.dependency_of.add(oRef); }
       if (c.depends_on.has(dRef))    { c.depends_on.delete(dRef);    c.depends_on.add(oRef); }
     });
@@ -459,8 +508,8 @@ function determineStyle(c) {
 }
 
 function chartName(c) {
-  var n = escHtml(c.name) + (c.version !== '-' ? ' <b>' + escHtml(c.version) + '</b>' : '');
-  var vulns = c.vulnerabilities.slice().sort(function (a, b) {
+  let n = escHtml(c.name) + (c.version !== '-' ? ' <b>' + escHtml(c.version) + '</b>' : '');
+  const vulns = c.vulnerabilities.slice().sort(function (a, b) {
     return (VALID_SEVERITIES[b.severity] || 0) - (VALID_SEVERITIES[a.severity] || 0);
   });
   if (vulns.length) {
@@ -468,7 +517,7 @@ function chartName(c) {
     vulns.slice(0, 10).forEach(function (v) { n += '<li style="margin-left:1.2em">' + escHtml(v.id) + ' (' + escHtml(capitalize(v.severity)) + ')</li>'; });
     if (vulns.length > 10) n += '<li style="margin-left:1.2em">...</li>';
   }
-  var lics = Array.from(c.license);
+  const lics = Array.from(c.license);
   if (lics.length) {
     if (!vulns.length) n += '<br>';
     n += '<br>License:<br>';
@@ -483,16 +532,18 @@ function addTransitive(comp, list) {
 }
 
 function getChildren(components, comp, parents) {
-  var children = [], value = 0, hasVuln = comp.vulnerabilities.length > 0;
+  const children = [];
+  let value = 0;
+  let hasVuln = comp.vulnerabilities.length > 0;
   comp.depends_on.forEach(function (childRef) {
     if (!components[childRef]) return;
-    var child = components[childRef];
+    const child = components[childRef];
     child.visited = true;
     if (parents.indexOf(childRef) !== -1) {
       children.push({ name: chartName(child), children: [], value: 1, itemStyle: determineStyle(child) });
       value += 1; return;
     }
-    var r = getChildren(components, child, parents.concat([childRef]));
+    const r = getChildren(components, child, parents.concat([childRef]));
     if (child.vulnerabilities.length || child.has_transitive_vulnerabilities || r.hasVuln) {
       comp.has_transitive_vulnerabilities = true;
       addTransitive(comp, child.vulnerabilities);
@@ -508,7 +559,7 @@ function getChildren(components, comp, parents) {
 
 function addRoot(components, comp, data, ref) {
   comp.visited = true;
-  var r = getChildren(components, comp, [ref]);
+  const r = getChildren(components, comp, [ref]);
   if (r.hasVuln) {
     comp.has_transitive_vulnerabilities = true;
     comp.depends_on.forEach(function (cr) {
@@ -521,7 +572,7 @@ function addRoot(components, comp, data, ref) {
 }
 
 function buildEchartsData(components) {
-  var data = [];
+  const data = [];
   Object.keys(components).forEach(function (ref) {
     if (components[ref].dependency_of.size === 0) addRoot(components, components[ref], data, ref);
   });
@@ -532,9 +583,9 @@ function buildEchartsData(components) {
 }
 
 function deepCopy(components) {
-  var copy = {};
+  const copy = {};
   Object.keys(components).forEach(function (ref) {
-    var c = components[ref];
+    const c = components[ref];
     copy[ref] = {
       name: c.name, version: c.version, type: c.type, license: new Set(c.license),
       depends_on: new Set(c.depends_on), dependency_of: new Set(c.dependency_of),
@@ -548,14 +599,14 @@ function deepCopy(components) {
 }
 
 function vulnOnlyComponents(components) {
-  var vulnRefs = new Set();
+  const vulnRefs = new Set();
   Object.keys(components).forEach(function (ref) {
-    var c = components[ref];
+    const c = components[ref];
     if (c.vulnerabilities.length || c.has_transitive_vulnerabilities) vulnRefs.add(ref);
   });
-  var result = {};
+  const result = {};
   vulnRefs.forEach(function (ref) {
-    var c = components[ref];
+    const c = components[ref];
     result[ref] = Object.assign({}, c, {
       license: new Set(c.license),
       depends_on:    new Set(Array.from(c.depends_on).filter(function (r) { return vulnRefs.has(r); })),
@@ -571,9 +622,9 @@ function vulnOnlyComponents(components) {
 // ─── stats ────────────────────────────────────────────────────────────────────
 
 function parseVulnerabilities(components) {
-  var vulns = {}, cnt = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  const vulns = {}, cnt = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   function add(vd, dirRef, tranRef) {
-    var key = vd.id + '-' + vd.severity + '-' + vd.score;
+    const key = vd.id + '-' + vd.severity + '-' + vd.score;
     if (!vulns[key]) {
       vulns[key] = { id: vd.id, severity: vd.severity, score: vd.score, vector: vd.vector,
         directly_vulnerable_components: new Set(), transitively_vulnerable_components: new Set() };
@@ -587,7 +638,7 @@ function parseVulnerabilities(components) {
     if (tranRef) vulns[key].transitively_vulnerable_components.add(tranRef);
   }
   Object.keys(components).forEach(function (ref) {
-    var c = components[ref];
+    const c = components[ref];
     c.vulnerabilities.forEach(function (vd) { add(vd, ref, null); });
     c.transitive_vulnerabilities.forEach(function (vd) { add(vd, null, ref); });
   });
@@ -597,7 +648,7 @@ function parseVulnerabilities(components) {
 // ─── HTML table helpers ───────────────────────────────────────────────────────
 
 function compBadge(c) {
-  var cls = badgeClass(c.max_vulnerability_severity, c.has_transitive_vulnerabilities);
+  const cls = badgeClass(c.max_vulnerability_severity, c.has_transitive_vulnerabilities);
   return '<span class="' + cls + '">' + escHtml(c.name) +
     (c.version !== '-' ? ' ' + escHtml(c.version) : '') + '</span>';
 }
@@ -613,7 +664,7 @@ function vulnBadgesHtml(list) {
 
 // sortable, paginated, searchable table builder
 function buildTable(id, headers, rows, searchable) {
-  var thead = '<thead><tr>' + headers.map(function (h) {
+  let thead = '<thead><tr>' + headers.map(function (h) {
     return '<th>' + h + '</th>';
   }).join('') + '</tr>';
   if (searchable) {
@@ -622,41 +673,41 @@ function buildTable(id, headers, rows, searchable) {
     }).join('') + '</tr>';
   }
   thead += '</thead>';
-  var tbody = '<tbody>' + rows.join('') + '</tbody>';
+  const tbody = '<tbody>' + rows.join('') + '</tbody>';
   return '<table id="' + id + '" class="sbomviz-tbl">' + thead + tbody + '</table>';
 }
 
 function paginateTable(tableId) {
-  var table = document.getElementById(tableId);
+  const table = document.getElementById(tableId);
   if (!table) return;
-  var allRows = Array.from(table.querySelectorAll('tbody tr'));
-  var pageSize = 15;
-  var currentPage = 1;
-  var filtered = allRows;
+  const allRows = Array.from(table.querySelectorAll('tbody tr'));
+  const pageSize = 15;
+  let currentPage = 1;
+  let filtered = allRows;
 
   function render() {
-    var start = (currentPage - 1) * pageSize;
+    const start = (currentPage - 1) * pageSize;
     allRows.forEach(function (r) { r.style.display = 'none'; });
     filtered.slice(start, start + pageSize).forEach(function (r) { r.style.display = ''; });
     renderPager();
   }
 
-  var pager = document.createElement('div');
+  const pager = document.createElement('div');
   pager.className = 'sv-page-ctrl';
   table.parentNode.insertBefore(pager, table.nextSibling);
 
   function renderPager() {
     pager.innerHTML = '';
-    var totalPages = Math.ceil(filtered.length / pageSize) || 1;
-    var info = document.createElement('span');
+    const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+    const info = document.createElement('span');
     info.className = 'sv-page-info';
-    var start = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-    var end = Math.min(currentPage * pageSize, filtered.length);
+    const start = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    const end = Math.min(currentPage * pageSize, filtered.length);
     info.textContent = start + '–' + end + ' of ' + filtered.length;
     pager.appendChild(info);
-    for (var p = 1; p <= totalPages; p++) {
+    for (let p = 1; p <= totalPages; p++) {
       (function (page) {
-        var btn = document.createElement('button');
+        const btn = document.createElement('button');
         btn.textContent = page;
         if (page === currentPage) btn.className = 'sv-active';
         btn.addEventListener('click', function () { currentPage = page; render(); });
@@ -666,15 +717,15 @@ function paginateTable(tableId) {
   }
 
   // search
-  var searchInputs = table.querySelectorAll('.sv-search-row input');
+  const searchInputs = table.querySelectorAll('.sv-search-row input');
   searchInputs.forEach(function (input, colIdx) {
     input.addEventListener('input', function () {
-      var terms = Array.from(searchInputs).map(function (i) { return i.value.trim().toLowerCase(); });
+      const terms = Array.from(searchInputs).map(function (i) { return i.value.trim().toLowerCase(); });
       filtered = allRows.filter(function (row) {
-        var cells = row.querySelectorAll('td');
+        const cells = row.querySelectorAll('td');
         return terms.every(function (term, ci) {
           if (!term) return true;
-          var cell = cells[ci];
+          const cell = cells[ci];
           return cell && cell.textContent.toLowerCase().indexOf(term) !== -1;
         });
       });
@@ -689,11 +740,11 @@ function paginateTable(tableId) {
 // ─── renderer ────────────────────────────────────────────────────────────────
 
 function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate) {
-  var components = parseJsonData(sbomData);
+  const components = parseJsonData(sbomData);
   purgeComponents(components);
 
-  var allCopy = deepCopy(components);
-  var echartsAll = buildEchartsData(allCopy);
+  const allCopy = deepCopy(components);
+  const echartsAll = buildEchartsData(allCopy);
   // propagate transitive state back
   Object.keys(allCopy).forEach(function (ref) {
     if (components[ref]) {
@@ -703,21 +754,21 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     }
   });
 
-  var vulnCopy = vulnOnlyComponents(components);
-  var echartsVuln = buildEchartsData(vulnCopy);
+  const vulnCopy = vulnOnlyComponents(components);
+  const echartsVuln = buildEchartsData(vulnCopy);
 
-  var stats = parseVulnerabilities(components);
-  var compKeys = Object.keys(components);
-  var vulnKeys = Object.keys(stats.vulns);
+  const stats = parseVulnerabilities(components);
+  const compKeys = Object.keys(components);
+  const vulnKeys = Object.keys(stats.vulns);
 
   // ── components table ──
-  var compRows = compKeys.map(function (ref) {
-    var c = components[ref];
-    var depOn = Array.from(c.depends_on).filter(function (r) { return components[r]; });
-    var depOf = Array.from(c.dependency_of).filter(function (r) { return components[r]; });
-    var dirVulns = vulnBadgesHtml(c.vulnerabilities);
-    var transVulns = vulnBadgesHtml(c.transitive_vulnerabilities);
-    var lics = Array.from(c.license).map(function (l) {
+  const compRows = compKeys.map(function (ref) {
+    const c = components[ref];
+    const depOn = Array.from(c.depends_on).filter(function (r) { return components[r]; });
+    const depOf = Array.from(c.dependency_of).filter(function (r) { return components[r]; });
+    const dirVulns = vulnBadgesHtml(c.vulnerabilities);
+    const transVulns = vulnBadgesHtml(c.transitive_vulnerabilities);
+    const lics = Array.from(c.license).map(function (l) {
       return '<span class="sv-badge sv-license">' + escHtml(l) + '</span>';
     }).join('<br>');
     return '<tr>' +
@@ -729,16 +780,16 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       '<td>' + (lics || '-') + '</td>' +
       '</tr>';
   });
-  var compTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-comp-tbl',
+  const compTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-comp-tbl',
     ['Component', 'Depends on', 'Dependency of', 'Direct vulns', 'Transitive vulns', 'License'],
     compRows, true) + '</div>';
 
   // ── vulnerabilities table ──
-  var vulnRows = vulnKeys.map(function (key) {
-    var v = stats.vulns[key];
-    var cls = badgeClass(v.severity, false);
-    var dirComps = Array.from(v.directly_vulnerable_components).filter(function (r) { return components[r]; });
-    var tranComps = Array.from(v.transitively_vulnerable_components).filter(function (r) { return components[r]; });
+  const vulnRows = vulnKeys.map(function (key) {
+    const v = stats.vulns[key];
+    const cls = badgeClass(v.severity, false);
+    const dirComps = Array.from(v.directly_vulnerable_components).filter(function (r) { return components[r]; });
+    const tranComps = Array.from(v.transitively_vulnerable_components).filter(function (r) { return components[r]; });
     return '<tr>' +
       '<td><span class="' + cls + '">' + escHtml(v.id) + '</span></td>' +
       '<td>' + escHtml(capitalize(v.severity)) + '</td>' +
@@ -748,7 +799,7 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       '<td>' + (tranComps.length ? tranComps.map(function (r) { return compBadge(components[r]); }).join('<br>') : '-') + '</td>' +
       '</tr>';
   });
-  var vulnTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-vuln-tbl',
+  const vulnTableHtml = '<div class="sbomviz-tbl-wrap">' + buildTable('sbomviz-vuln-tbl',
     ['Vulnerability', 'Severity', 'Score', 'Vector', 'Directly vulnerable', 'Transitively vulnerable'],
     vulnRows, true) + '</div>';
 
@@ -796,8 +847,9 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
   ].join('\n');
 
   // init charts
-  var ec = window.echarts;
-  var chartOpts = function (data) {
+  // S7764 — use globalThis.echarts over window.echarts (window.registerExtension stays as-is)
+  const ec = globalThis.echarts;
+  const chartOpts = function (data) {
     return {
       tooltip: { formatter: function (p) { return p.name; } },
       series: {
@@ -808,15 +860,16 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     };
   };
 
-  var chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
-  var chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
+  const chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
+  const chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
   chartAll.setOption(chartOpts(echartsAll));
   chartVuln.setOption(chartOpts(echartsVuln));
 
-  window.addEventListener('resize', function () { chartAll.resize(); chartVuln.resize(); });
+  // S6582 — use optional chaining; S7764 — globalThis
+  globalThis.addEventListener('resize', function () { chartAll.resize(); chartVuln.resize(); });
 
   // radio toggle
-  var radios = document.querySelectorAll('input[name="sbomvizChart"]');
+  const radios = document.querySelectorAll('input[name="sbomvizChart"]');
   radios.forEach(function (radio) {
     radio.addEventListener('change', function () {
       if (this.value === 'all') {
