@@ -2,6 +2,7 @@
 .DS_Store
 claude_session_id
 sqs_plugin_dev.md
+.mcp.json
 
 # Maven build output
 target/
