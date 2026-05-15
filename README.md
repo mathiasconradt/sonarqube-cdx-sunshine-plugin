@@ -1,6 +1,6 @@
 # SonarQube SBOM Visualization Plugin
 
-![Build](https://github.com/mathiasconradt/sonarqube-cdx-sunshine-plugin/actions/workflows/build.yml/badge.svg) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=mathiasconradt_sonarqube-sbom-visualization-plugin&metric=alert_status&token=b759bd0b8b0817cc29de54350d7c480bebbb028c)](https://sonarcloud.io/summary/new_code?id=mathiasconradt_sonarqube-sbom-visualization-plugin)
+![Build](https://github.com/mathiasconradt/sonarqube-cdx-sunshine-plugin/actions/workflows/build.yml/badge.svg) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=mathiasconradt_sonarqube-sbom-visualization-plugin&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=mathiasconradt_sonarqube-sbom-visualization-plugin)
 
 A SonarQube plugin that brings the [CycloneDX Sunshine](https://github.com/CycloneDX/Sunshine) SBOM visualization directly into SonarQube, per project.
 
