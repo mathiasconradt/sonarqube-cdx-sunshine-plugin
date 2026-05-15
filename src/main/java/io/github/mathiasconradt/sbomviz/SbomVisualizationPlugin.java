@@ -21,8 +21,26 @@ import org.sonar.api.Plugin;
 import org.sonar.api.PropertyType;
 import org.sonar.api.config.PropertyDefinition;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
 public class SbomVisualizationPlugin implements Plugin {
-    static final String SETTINGS_CATEGORY = "SBOM Visualization";
+    static final String PLUGIN_VERSION = loadVersion();
+    static final String SETTINGS_CATEGORY = "SBOM Visualization" +
+        (PLUGIN_VERSION.isEmpty() ? "" : " v" + PLUGIN_VERSION);
+
+    private static String loadVersion() {
+        try (InputStream is = SbomVisualizationPlugin.class.getResourceAsStream("/sbomviz-plugin.properties")) {
+            if (is != null) {
+                final Properties p = new Properties();
+                p.load(is);
+                return p.getProperty("plugin.version", "");
+            }
+        } catch (IOException ignored) {
+        }
+        return "";
+    }
     static final String TOKEN_KEY = "sbomviz.sonar.token";
     static final String COMPONENT_LIMIT_KEY = "sbomviz.largeGraph.componentLimit";
     static final String EDGE_LIMIT_KEY = "sbomviz.largeGraph.edgeLimit";

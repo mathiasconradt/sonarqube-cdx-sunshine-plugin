@@ -10,9 +10,24 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-function getBaseUrl() {
-  const href = document.querySelector('base')?.href;
-  return href ? new URL(href).pathname.replace(/\/$/, '') : '';
+// Bootstrap base URL from current page URL pattern; overridden by sonar.core.serverBaseURL after first fetch
+let _baseUrl = (function () {
+  const path = globalThis.location.pathname;
+  const markers = ['/administration/extension/', '/admin/extension/', '/project/extension/', '/portfolio/extension/'];
+  for (const marker of markers) {
+    const idx = path.indexOf(marker);
+    if (idx !== -1) return path.substring(0, idx);
+  }
+  return '';
+}());
+
+function getBaseUrl() { return _baseUrl; }
+
+function applyServerBaseUrl(settings) {
+  const value = settings['sonar.core.serverBaseURL'];
+  if (value && (value.startsWith('http://') || value.startsWith('https://'))) {
+    _baseUrl = new URL(value).pathname.replace(/\/$/, '');
+  }
 }
 
 function settingMap(settings) {
@@ -57,7 +72,7 @@ window.registerExtension('sbomviz/admin', function (options) {
 
   el.innerHTML = [
     '<div class="sbomviz-admin">',
-    '  <h2>SBOM Visualization — Settings</h2>',
+    '  <h2>SBOM Visualization — Settings <span style="font-size:12px;color:#888;font-weight:normal;">v${project.version}</span></h2>',
     '  <p>Configure the SonarQube token used to fetch SBOM and dependency risk data for projects.</p>',
     '  <div class="sbomviz-field">',
     '    <label for="sbomviz-token-input">SonarQube Token</label>',
@@ -142,13 +157,15 @@ window.registerExtension('sbomviz/admin', function (options) {
   fetch(getBaseUrl() + '/api/settings/values?keys=' + [
     TOKEN_KEY,
     COMPONENT_LIMIT_KEY,
-    EDGE_LIMIT_KEY
+    EDGE_LIMIT_KEY,
+    'sonar.core.serverBaseURL'
   ].map(encodeURIComponent).join(','), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
     .then(function (r) { return r.json(); })
     .then(function (data) {
       const settings = settingMap(data.settings);
+      applyServerBaseUrl(settings);
       if (settings[TOKEN_KEY]) {
         tokenInput.placeholder = '(token is set — enter a new value to replace)';
       }

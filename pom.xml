@@ -34,6 +34,26 @@
   </dependencies>
 
   <build>
+    <resources>
+      <!-- filter admin.js and properties file to inject ${project.version} -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+        <includes>
+          <include>static/admin.js</include>
+          <include>sbomviz-plugin.properties</include>
+        </includes>
+      </resource>
+      <!-- everything else unfiltered (echarts.min.js must not be processed) -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>static/admin.js</exclude>
+          <exclude>sbomviz-plugin.properties</exclude>
+        </excludes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.sonarsource.sonar-packaging-maven-plugin</groupId>
