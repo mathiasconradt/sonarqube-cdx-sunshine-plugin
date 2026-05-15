@@ -51,22 +51,32 @@ public class SbomVisualizationPlugin implements Plugin {
         context.addExtensions(
             PropertyDefinition.builder(TOKEN_KEY)
                 .name("SonarQube Token")
-                .description("Token used by the SBOM Visualization plugin to read project SBOM and SCA data." +
+                .description("Token with permission to read project SBOM and SCA data. " +
+                    "Stored as a global setting and used by the plugin to call the SonarQube SCA API on behalf of users." +
                     (PLUGIN_VERSION.isEmpty() ? "" : " Plugin version: " + PLUGIN_VERSION + "."))
                 .category(SETTINGS_CATEGORY)
+                .subCategory("Authentication")
+                .index(1)
                 .type(PropertyType.PASSWORD)
                 .build(),
             PropertyDefinition.builder(COMPONENT_LIMIT_KEY)
-                .name("Large graph component limit")
-                .description("Maximum number of SBOM components for which the dependency sunburst chart is rendered. Larger projects use table-only mode.")
+                .name("Component limit")
+                .description("Maximum number of unique SBOM components before the dependency sunburst chart is disabled and the project page switches to table-only mode. " +
+                    "The chart is rendered as a sunburst — for very large dependency graphs it can exceed browser memory because dependency paths are expanded into chart nodes. " +
+                    "Default: " + DEFAULT_COMPONENT_LIMIT + ".")
                 .category(SETTINGS_CATEGORY)
+                .subCategory("Large Project Mode")
+                .index(1)
                 .type(PropertyType.INTEGER)
                 .defaultValue(String.valueOf(DEFAULT_COMPONENT_LIMIT))
                 .build(),
             PropertyDefinition.builder(EDGE_LIMIT_KEY)
-                .name("Large graph dependency relationship limit")
-                .description("Maximum number of dependency relationships for which the dependency sunburst chart is rendered. Larger graphs use table-only mode.")
+                .name("Dependency relationship limit")
+                .description("Maximum number of dependency relationships before the dependency sunburst chart is disabled and the project page switches to table-only mode. " +
+                    "Default: " + DEFAULT_EDGE_LIMIT + ".")
                 .category(SETTINGS_CATEGORY)
+                .subCategory("Large Project Mode")
+                .index(2)
                 .type(PropertyType.INTEGER)
                 .defaultValue(String.valueOf(DEFAULT_EDGE_LIMIT))
                 .build(),
