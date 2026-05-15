@@ -6,7 +6,7 @@
 
   <groupId>io.github.mathiasconradt</groupId>
   <artifactId>sonarqube-cdx-sunshine-plugin</artifactId>
-  <version>0.1.8</version>
+  <version>0.1.9</version>
   <packaging>sonar-plugin</packaging>
 
   <name>SBOM Visualization</name>
