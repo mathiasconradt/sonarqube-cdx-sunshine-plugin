@@ -21,25 +21,8 @@ import org.sonar.api.Plugin;
 import org.sonar.api.PropertyType;
 import org.sonar.api.config.PropertyDefinition;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
-
 public class SbomVisualizationPlugin implements Plugin {
-    static final String PLUGIN_VERSION = loadVersion();
     static final String SETTINGS_CATEGORY = "SBOM Visualization";
-
-    private static String loadVersion() {
-        try (InputStream is = SbomVisualizationPlugin.class.getResourceAsStream("/sbomviz-plugin.properties")) {
-            if (is != null) {
-                final Properties p = new Properties();
-                p.load(is);
-                return p.getProperty("plugin.version", "");
-            }
-        } catch (IOException ignored) {
-        }
-        return "";
-    }
     static final String TOKEN_KEY = "sbomviz.sonar.token";
     static final String COMPONENT_LIMIT_KEY = "sbomviz.largeGraph.componentLimit";
     static final String EDGE_LIMIT_KEY = "sbomviz.largeGraph.edgeLimit";
@@ -49,15 +32,6 @@ public class SbomVisualizationPlugin implements Plugin {
     @Override
     public void define(Context context) {
         context.addExtensions(
-            PropertyDefinition.builder("sbomviz.info.version")
-                .name("Version")
-                .description("Installed version of the SBOM Visualization plugin. This field is read-only — do not modify.")
-                .category(SETTINGS_CATEGORY)
-                .subCategory("Plugin Information")
-                .index(1)
-                .type(PropertyType.STRING)
-                .defaultValue(PLUGIN_VERSION)
-                .build(),
             PropertyDefinition.builder(TOKEN_KEY)
                 .name("SonarQube Token")
                 .description("Token with permission to read project SBOM and SCA data. " +
