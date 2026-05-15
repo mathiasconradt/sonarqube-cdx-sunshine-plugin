@@ -49,11 +49,19 @@ public class SbomVisualizationPlugin implements Plugin {
     @Override
     public void define(Context context) {
         context.addExtensions(
+            PropertyDefinition.builder("sbomviz.info.version")
+                .name("Version")
+                .description("Installed version of the SBOM Visualization plugin. This field is read-only — do not modify.")
+                .category(SETTINGS_CATEGORY)
+                .subCategory("Plugin Information")
+                .index(1)
+                .type(PropertyType.STRING)
+                .defaultValue(PLUGIN_VERSION)
+                .build(),
             PropertyDefinition.builder(TOKEN_KEY)
                 .name("SonarQube Token")
                 .description("Token with permission to read project SBOM and SCA data. " +
-                    "Stored as a global setting and used by the plugin to call the SonarQube SCA API on behalf of users." +
-                    (PLUGIN_VERSION.isEmpty() ? "" : " Plugin version: " + PLUGIN_VERSION + "."))
+                    "Stored as a global setting and used by the plugin to call the SonarQube SCA API on behalf of users.")
                 .category(SETTINGS_CATEGORY)
                 .subCategory("Authentication")
                 .index(1)
