@@ -22,6 +22,11 @@
  * preserved; adaptations were made for the SonarQube plugin environment.
  */
 
+function getBaseUrl() {
+  const href = document.querySelector('base')?.href;
+  return href ? new URL(href).pathname.replace(/\/$/, '') : '';
+}
+
 function rowMatches(row, terms) {
   return terms.every(function (term, ci) {
     return !term || (row.search[ci] || '').includes(term);
@@ -144,7 +149,7 @@ window.registerExtension('sbomviz/project', function (options) {
       const existing = document.querySelector('script[data-sbomviz-echarts]');
       if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
       const s = document.createElement('script');
-      s.src = '/static/sbomviz/echarts.min.js';
+      s.src = getBaseUrl() + '/static/sbomviz/echarts.min.js';
       s.dataset.sbomvizEcharts = '1';
       s.addEventListener('load', resolve);
       s.addEventListener('error', function () { reject(new Error('Failed to load echarts')); });
@@ -157,7 +162,7 @@ window.registerExtension('sbomviz/project', function (options) {
   const NO_DEPENDENCY_SCAN_MESSAGE = 'No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.';
 
   function fetchSbomData(branch, noCache) {
-    let url = '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
+    let url = getBaseUrl() + '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
     if (branch) url += '&branch=' + encodeURIComponent(branch);
     if (noCache) url += '&noCache=true';
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -204,7 +209,7 @@ window.registerExtension('sbomviz/project', function (options) {
   }
 
   // fetch branches first, then build UI
-  fetch('/api/sbomviz/branches?projectKey=' + encodeURIComponent(projectKey), {
+  fetch(getBaseUrl() + '/api/sbomviz/branches?projectKey=' + encodeURIComponent(projectKey), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
     .then(function (r) { return r.json(); })

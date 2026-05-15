@@ -10,6 +10,11 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+function getBaseUrl() {
+  const href = document.querySelector('base')?.href;
+  return href ? new URL(href).pathname.replace(/\/$/, '') : '';
+}
+
 function settingMap(settings) {
   const map = {};
   (settings || []).forEach(function (setting) {
@@ -117,7 +122,7 @@ window.registerExtension('sbomviz/admin', function (options) {
 
   function setSetting(key, value) {
     const body = 'key=' + encodeURIComponent(key) + '&value=' + encodeURIComponent(value);
-    return fetch('/api/settings/set', {
+    return fetch(getBaseUrl() + '/api/settings/set', {
       method: 'POST',
       headers: {
         'X-Requested-With': 'XMLHttpRequest',
@@ -134,7 +139,7 @@ window.registerExtension('sbomviz/admin', function (options) {
     });
   }
 
-  fetch('/api/settings/values?keys=' + [
+  fetch(getBaseUrl() + '/api/settings/values?keys=' + [
     TOKEN_KEY,
     COMPONENT_LIMIT_KEY,
     EDGE_LIMIT_KEY
