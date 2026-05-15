@@ -26,7 +26,8 @@ function getBaseUrl() { return _baseUrl; }
 function applyServerBaseUrl(settings) {
   const value = settings['sonar.core.serverBaseURL'];
   if (value && (value.startsWith('http://') || value.startsWith('https://'))) {
-    _baseUrl = new URL(value).pathname.replace(/\/$/, '');
+    const extracted = new URL(value).pathname.replace(/\/$/, '');
+    if (extracted) { _baseUrl = extracted; }
   }
 }
 

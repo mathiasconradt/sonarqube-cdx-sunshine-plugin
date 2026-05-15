@@ -22,9 +22,32 @@
  * preserved; adaptations were made for the SonarQube plugin environment.
  */
 
-function getBaseUrl() {
-  const href = document.querySelector('base')?.href;
-  return href ? new URL(href).pathname.replace(/\/$/, '') : '';
+// Bootstrap base URL from current page URL pattern; overridden by sonar.core.serverBaseURL after first fetch
+let _baseUrl = (function () {
+  const path = globalThis.location.pathname;
+  const markers = ['/administration/extension/', '/admin/extension/', '/project/extension/', '/portfolio/extension/'];
+  for (const marker of markers) {
+    const idx = path.indexOf(marker);
+    if (idx !== -1) return path.substring(0, idx);
+  }
+  return '';
+}());
+
+function getBaseUrl() { return _baseUrl; }
+
+function resolveBaseUrl() {
+  return fetch(_baseUrl + '/api/settings/values?keys=sonar.core.serverBaseURL', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      const setting = (data.settings || []).find(function (s) { return s.key === 'sonar.core.serverBaseURL'; });
+      if (setting?.value && (setting.value.startsWith('http://') || setting.value.startsWith('https://'))) {
+        const extracted = new URL(setting.value).pathname.replace(/\/$/, '');
+        if (extracted) { _baseUrl = extracted; }  // only override if non-empty path (e.g. /e); root deployments return '' — keep URL-pattern result
+      }
+    })
+    .catch(function () {});
 }
 
 function rowMatches(row, terms) {
@@ -208,7 +231,8 @@ window.registerExtension('sbomviz/project', function (options) {
       });
   }
 
-  // fetch branches first, then build UI
+  // resolve authoritative base URL from sonar.core.serverBaseURL, then fetch branches
+  resolveBaseUrl().then(function () {
   fetch(getBaseUrl() + '/api/sbomviz/branches?projectKey=' + encodeURIComponent(projectKey), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
@@ -281,6 +305,7 @@ window.registerExtension('sbomviz/project', function (options) {
         '</div>';
       loadAndRender(null);
     });
+  }); // end resolveBaseUrl().then
 
   return function () {
     el.innerHTML = '';
