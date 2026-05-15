@@ -27,8 +27,7 @@ import java.util.Properties;
 
 public class SbomVisualizationPlugin implements Plugin {
     static final String PLUGIN_VERSION = loadVersion();
-    static final String SETTINGS_CATEGORY = "SBOM Visualization" +
-        (PLUGIN_VERSION.isEmpty() ? "" : " v" + PLUGIN_VERSION);
+    static final String SETTINGS_CATEGORY = "SBOM Visualization";
 
     private static String loadVersion() {
         try (InputStream is = SbomVisualizationPlugin.class.getResourceAsStream("/sbomviz-plugin.properties")) {
@@ -52,7 +51,8 @@ public class SbomVisualizationPlugin implements Plugin {
         context.addExtensions(
             PropertyDefinition.builder(TOKEN_KEY)
                 .name("SonarQube Token")
-                .description("Token used by the SBOM Visualization plugin to read project SBOM and SCA data.")
+                .description("Token used by the SBOM Visualization plugin to read project SBOM and SCA data." +
+                    (PLUGIN_VERSION.isEmpty() ? "" : " Plugin version: " + PLUGIN_VERSION + "."))
                 .category(SETTINGS_CATEGORY)
                 .type(PropertyType.PASSWORD)
                 .build(),
