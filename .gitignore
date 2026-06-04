@@ -3,6 +3,7 @@
 claude_session_id
 sqs_plugin_dev.md
 .mcp.json
+.codex/config.toml
 
 # Maven build output
 target/
