@@ -6,7 +6,7 @@
 
   <groupId>io.github.mathiasconradt</groupId>
   <artifactId>sonarqube-cdx-sunshine-plugin</artifactId>
-  <version>0.1.9</version>
+  <version>0.2.0</version>
   <packaging>sonar-plugin</packaging>
 
   <name>SBOM Visualization</name>
@@ -41,7 +41,7 @@
         <filtering>true</filtering>
         <includes>
           <include>static/admin.js</include>
-          <include>sbomviz-plugin.properties</include>
+          <include>cdxsunshine-plugin.properties</include>
         </includes>
       </resource>
       <!-- everything else unfiltered (echarts.min.js must not be processed) -->
@@ -50,7 +50,7 @@
         <filtering>false</filtering>
         <excludes>
           <exclude>static/admin.js</exclude>
-          <exclude>sbomviz-plugin.properties</exclude>
+          <exclude>cdxsunshine-plugin.properties</exclude>
         </excludes>
       </resource>
     </resources>
@@ -61,7 +61,7 @@
         <version>1.23.0.740</version>
         <extensions>true</extensions>
         <configuration>
-          <pluginKey>sbomviz</pluginKey>
+          <pluginKey>cdxsunshine</pluginKey>
           <pluginClass>io.github.mathiasconradt.sbomviz.SbomVisualizationPlugin</pluginClass>
           <pluginName>SBOM Visualization</pluginName>
           <pluginApiMinVersion>12.0.0.2960</pluginApiMinVersion>

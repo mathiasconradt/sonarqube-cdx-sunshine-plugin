@@ -39,11 +39,14 @@ function settingMap(settings) {
   return map;
 }
 
-window.registerExtension('sbomviz/admin', function (options) {
+var _cdxSunshineAdminHandler = function (options) {
   const el = options.el;
-  const TOKEN_KEY = 'sbomviz.sonar.token';
-  const COMPONENT_LIMIT_KEY = 'sbomviz.largeGraph.componentLimit';
-  const EDGE_LIMIT_KEY = 'sbomviz.largeGraph.edgeLimit';
+  const TOKEN_KEY          = 'cdxsunshine.sonar.token';
+  const COMPONENT_LIMIT_KEY = 'cdxsunshine.largeGraph.componentLimit';
+  const EDGE_LIMIT_KEY      = 'cdxsunshine.largeGraph.edgeLimit';
+  const TOKEN_KEY_LEGACY          = 'sbomviz.sonar.token';
+  const COMPONENT_LIMIT_KEY_LEGACY = 'sbomviz.largeGraph.componentLimit';
+  const EDGE_LIMIT_KEY_LEGACY      = 'sbomviz.largeGraph.edgeLimit';
   const DEFAULT_COMPONENT_LIMIT = 5000;
   const DEFAULT_EDGE_LIMIT = 15000;
 
@@ -155,10 +158,21 @@ window.registerExtension('sbomviz/admin', function (options) {
     });
   }
 
+  // check token via plugin status endpoint (reads both cdxsunshine.* and legacy sbomviz.* from Configuration)
+  fetch(getBaseUrl() + '/api/cdxsunshine/status', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.tokenConfigured) {
+        tokenInput.placeholder = '(token is set — enter a new value to replace)';
+      }
+    })
+    .catch(function () {});
+
   fetch(getBaseUrl() + '/api/settings/values?keys=' + [
-    TOKEN_KEY,
-    COMPONENT_LIMIT_KEY,
-    EDGE_LIMIT_KEY,
+    TOKEN_KEY, COMPONENT_LIMIT_KEY, EDGE_LIMIT_KEY,
+    COMPONENT_LIMIT_KEY_LEGACY, EDGE_LIMIT_KEY_LEGACY,
     'sonar.core.serverBaseURL'
   ].map(encodeURIComponent).join(','), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -167,14 +181,13 @@ window.registerExtension('sbomviz/admin', function (options) {
     .then(function (data) {
       const settings = settingMap(data.settings);
       applyServerBaseUrl(settings);
-      if (settings[TOKEN_KEY]) {
-        tokenInput.placeholder = '(token is set — enter a new value to replace)';
+      const componentLimit = settings[COMPONENT_LIMIT_KEY] || settings[COMPONENT_LIMIT_KEY_LEGACY];
+      if (componentLimit) {
+        componentLimitInput.value = componentLimit;
       }
-      if (settings[COMPONENT_LIMIT_KEY]) {
-        componentLimitInput.value = settings[COMPONENT_LIMIT_KEY];
-      }
-      if (settings[EDGE_LIMIT_KEY]) {
-        edgeLimitInput.value = settings[EDGE_LIMIT_KEY];
+      const edgeLimit = settings[EDGE_LIMIT_KEY] || settings[EDGE_LIMIT_KEY_LEGACY];
+      if (edgeLimit) {
+        edgeLimitInput.value = edgeLimit;
       }
     })
     .catch(function () {});
@@ -224,4 +237,5 @@ window.registerExtension('sbomviz/admin', function (options) {
     // S7762 — use .remove() instead of parentNode.removeChild()
     style.remove();
   };
-});
+};
+window.registerExtension('cdxsunshine/admin', _cdxSunshineAdminHandler);

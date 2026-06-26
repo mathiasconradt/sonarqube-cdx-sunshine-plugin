@@ -23,15 +23,24 @@ import org.sonar.api.config.PropertyDefinition;
 
 public class SbomVisualizationPlugin implements Plugin {
     static final String SETTINGS_CATEGORY = "SBOM Visualization";
-    static final String TOKEN_KEY = "sbomviz.sonar.token";
-    static final String COMPONENT_LIMIT_KEY = "sbomviz.largeGraph.componentLimit";
-    static final String EDGE_LIMIT_KEY = "sbomviz.largeGraph.edgeLimit";
+
+    // canonical keys (cdxsunshine.* — take priority)
+    static final String TOKEN_KEY          = "cdxsunshine.sonar.token";
+    static final String COMPONENT_LIMIT_KEY = "cdxsunshine.largeGraph.componentLimit";
+    static final String EDGE_LIMIT_KEY      = "cdxsunshine.largeGraph.edgeLimit";
+
+    // legacy keys (sbomviz.* — kept for backward compatibility, read as fallback)
+    static final String TOKEN_KEY_LEGACY          = "sbomviz.sonar.token";
+    static final String COMPONENT_LIMIT_KEY_LEGACY = "sbomviz.largeGraph.componentLimit";
+    static final String EDGE_LIMIT_KEY_LEGACY      = "sbomviz.largeGraph.edgeLimit";
+
     static final int DEFAULT_COMPONENT_LIMIT = 5000;
     static final int DEFAULT_EDGE_LIMIT = 15000;
 
     @Override
     public void define(Context context) {
         context.addExtensions(
+            // canonical settings
             PropertyDefinition.builder(TOKEN_KEY)
                 .name("SonarQube Token")
                 .description("Token with permission to read project SBOM and SCA data. " +

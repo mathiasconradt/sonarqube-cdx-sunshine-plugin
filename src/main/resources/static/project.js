@@ -56,7 +56,7 @@ function rowMatches(row, terms) {
   });
 }
 
-window.registerExtension('sbomviz/project', function (options) {
+var _cdxSunshineProjectHandler = function (options) {
   const el = options.el;
   // S6582 — use optional chaining instead of a && a.b
   const projectKey = options.component?.key ||
@@ -172,7 +172,7 @@ window.registerExtension('sbomviz/project', function (options) {
       const existing = document.querySelector('script[data-sbomviz-echarts]');
       if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
       const s = document.createElement('script');
-      s.src = getBaseUrl() + '/static/sbomviz/echarts.min.js';
+      s.src = getBaseUrl() + '/static/cdxsunshine/echarts.min.js';
       s.dataset.sbomvizEcharts = '1';
       s.addEventListener('load', resolve);
       s.addEventListener('error', function () { reject(new Error('Failed to load echarts')); });
@@ -185,7 +185,7 @@ window.registerExtension('sbomviz/project', function (options) {
   const NO_DEPENDENCY_SCAN_MESSAGE = 'No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.';
 
   function fetchSbomData(branch, noCache) {
-    let url = getBaseUrl() + '/api/sbomviz/data?projectKey=' + encodeURIComponent(projectKey);
+    let url = getBaseUrl() + '/api/cdxsunshine/data?projectKey=' + encodeURIComponent(projectKey);
     if (branch) url += '&branch=' + encodeURIComponent(branch);
     if (noCache) url += '&noCache=true';
     return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -233,7 +233,7 @@ window.registerExtension('sbomviz/project', function (options) {
 
   // resolve authoritative base URL from sonar.core.serverBaseURL, then fetch branches
   resolveBaseUrl().then(function () {
-  fetch(getBaseUrl() + '/api/sbomviz/branches?projectKey=' + encodeURIComponent(projectKey), {
+  fetch(getBaseUrl() + '/api/cdxsunshine/branches?projectKey=' + encodeURIComponent(projectKey), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
     .then(function (r) { return r.json(); })
@@ -313,7 +313,8 @@ window.registerExtension('sbomviz/project', function (options) {
     // S6582 — use optional chaining
     injectedStyle?.remove();
   };
-});
+};
+window.registerExtension('cdxsunshine/project', _cdxSunshineProjectHandler);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

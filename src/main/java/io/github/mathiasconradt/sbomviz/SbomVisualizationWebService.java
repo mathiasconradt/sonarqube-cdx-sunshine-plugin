@@ -67,7 +67,12 @@ public class SbomVisualizationWebService implements WebService {
 
     @Override
     public void define(Context context) {
-        NewController controller = context.createController("api/sbomviz");
+        registerController(context, "api/cdxsunshine");
+        registerController(context, "api/sbomviz"); // alias for backward compatibility
+    }
+
+    private void registerController(Context context, String path) {
+        NewController controller = context.createController(path);
         controller.setDescription("SBOM Visualization API");
 
         NewAction dataAction = controller.createAction("data")
@@ -92,12 +97,24 @@ public class SbomVisualizationWebService implements WebService {
             .setRequired(true)
             .setDescription("The SonarQube project key");
 
+        controller.createAction("status")
+            .setDescription("Returns plugin configuration status")
+            .setHandler(this::getStatus)
+            .setInternal(true);
+
         controller.done();
+    }
+
+    private void getStatus(Request request, Response response) throws IOException {
+        JsonObject status = new JsonObject();
+        status.addProperty("tokenConfigured", !resolvedToken().isEmpty());
+        response.stream().setMediaType(APPLICATION_JSON);
+        response.stream().output().write(new Gson().toJson(status).getBytes(StandardCharsets.UTF_8));
     }
 
     private void getBranches(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
-        String token = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
+        String token = resolvedToken();
 
         if (token.isEmpty()) {
             writeJsonError(response, "SonarQube token not configured.");
@@ -122,7 +139,7 @@ public class SbomVisualizationWebService implements WebService {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
         String branch = request.param("branch");
         boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
-        String token = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
+        String token = resolvedToken();
 
         if (token.isEmpty()) {
             writeJsonError(response, "SonarQube token not configured. Please set it in Administration → Configuration → SBOM Visualization.");
@@ -223,18 +240,28 @@ public class SbomVisualizationWebService implements WebService {
         JsonObject limits = new JsonObject();
         limits.addProperty("componentLimit", configuredPositiveInt(
             SbomVisualizationPlugin.COMPONENT_LIMIT_KEY,
+            SbomVisualizationPlugin.COMPONENT_LIMIT_KEY_LEGACY,
             SbomVisualizationPlugin.DEFAULT_COMPONENT_LIMIT
         ));
         limits.addProperty("edgeLimit", configuredPositiveInt(
             SbomVisualizationPlugin.EDGE_LIMIT_KEY,
+            SbomVisualizationPlugin.EDGE_LIMIT_KEY_LEGACY,
             SbomVisualizationPlugin.DEFAULT_EDGE_LIMIT
         ));
         result.add(LARGE_GRAPH_LIMITS, limits);
     }
 
-    private int configuredPositiveInt(String key, int fallback) {
-        int value = configuration.getInt(key).orElse(fallback);
-        return value > 0 ? value : fallback;
+    private String resolvedToken() {
+        String primary = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
+        if (!primary.isEmpty()) return primary;
+        return configuration.get(SbomVisualizationPlugin.TOKEN_KEY_LEGACY).orElse("").trim();
+    }
+
+    private int configuredPositiveInt(String primaryKey, String fallbackKey, int defaultValue) {
+        Optional<Integer> primary = configuration.getInt(primaryKey);
+        if (primary.isPresent() && primary.get() > 0) return primary.get();
+        int value = configuration.getInt(fallbackKey).orElse(defaultValue);
+        return value > 0 ? value : defaultValue;
     }
 
     private JsonArray fetchRisks(String baseUrl, String encodedKey, String branchSuffix,

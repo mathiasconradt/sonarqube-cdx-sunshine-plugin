@@ -24,7 +24,7 @@ import org.sonar.api.web.page.PageDefinition;
 public class SbomVisualizationPageDefinition implements PageDefinition {
     @Override
     public void define(Context context) {
-        context.addPage(Page.builder("sbomviz/project")
+        context.addPage(Page.builder("cdxsunshine/project")
             .setName("SBOM Visualization")
             .setScope(Page.Scope.COMPONENT)
             .build());
