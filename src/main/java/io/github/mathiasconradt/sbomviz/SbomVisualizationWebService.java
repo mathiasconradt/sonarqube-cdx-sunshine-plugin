@@ -390,7 +390,7 @@ public class SbomVisualizationWebService implements WebService {
     // in-process call via LocalConnector — propagates the caller's own session/permissions, no token
     private String callLocal(Request request, String path, Map<String, String> params, String mediaType) throws IOException {
         LocalConnector.LocalResponse resp = request.localConnector().call(
-            new SimpleLocalRequest(path, mediaType, params));
+            new SimpleLocalRequest(path, mediaType != null ? mediaType : APPLICATION_JSON, params));
 
         int code = resp.getStatus();
         if (code == 401) throw new IOException("Authentication failed (401) calling " + path + ".");
