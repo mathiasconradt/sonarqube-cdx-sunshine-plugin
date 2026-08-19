@@ -50,8 +50,12 @@ public class SbomVisualizationWebService implements WebService {
     private static final String APPLICATION_JSON = "application/json";
     private static final String ACTION_BRANCHES = "branches";
     private static final String FIELD_COMPONENTS = "components";
+    private static final String FIELD_COMPONENT = "component";
     private static final String FIELD_METADATA = "metadata";
     private static final String FIELD_VULNERABILITIES = "vulnerabilities";
+    private static final String PARAM_BRANCH = "branch";
+    private static final String QUERY_PARAM_PROJECT = "project";
+    private static final String QUERY_PARAM_COMPONENT = "component";
     private static final String NO_DEPENDENCY_SCAN_MESSAGE =
         "No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.";
     private static final String NOT_ANALYZED_MESSAGE =
@@ -87,7 +91,7 @@ public class SbomVisualizationWebService implements WebService {
         dataAction.createParam(PARAM_PROJECT_KEY)
             .setRequired(true)
             .setDescription("The SonarQube project key");
-        dataAction.createParam("branch")
+        dataAction.createParam(PARAM_BRANCH)
             .setRequired(false)
             .setDescription("Branch name (defaults to main branch)");
         dataAction.createParam("noCache")
@@ -109,7 +113,7 @@ public class SbomVisualizationWebService implements WebService {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
         try {
             String branchesJson = callLocal(request, "api/project_branches/list",
-                Map.of("project", projectKey), null);
+                Map.of(QUERY_PARAM_PROJECT, projectKey), null);
             response.stream().setMediaType(APPLICATION_JSON);
             response.stream().output().write(branchesJson.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
@@ -119,7 +123,7 @@ public class SbomVisualizationWebService implements WebService {
 
     private void getData(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
-        String branch = request.param("branch");
+        String branch = request.param(PARAM_BRANCH);
         boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
 
         Gson gson = new GsonBuilder().serializeNulls().create();
@@ -184,7 +188,7 @@ public class SbomVisualizationWebService implements WebService {
     private Optional<String> fetchSbomReport(Request request, String projectKey, String branch) throws IOException {
         try {
             Map<String, String> params = new HashMap<>();
-            params.put("component", projectKey);
+            params.put(QUERY_PARAM_COMPONENT, projectKey);
             params.put("type", "cyclonedx");
             addBranchParam(params, branch);
             return Optional.of(callLoopback(request, "api/v2/sca/sbom-reports", params, "application/vnd.cyclonedx+json"));
@@ -231,7 +235,7 @@ public class SbomVisualizationWebService implements WebService {
     private JsonArray fetchRisks(Request request, String projectKey, String branch, Gson gson) throws IOException {
         try {
             Map<String, String> params = new HashMap<>();
-            params.put("component", projectKey);
+            params.put(QUERY_PARAM_COMPONENT, projectKey);
             addBranchParam(params, branch);
             String risksJson = callLoopback(request, "api/v2/sca/risk-reports", params, null);
             JsonElement risksEl = gson.fromJson(risksJson, JsonElement.class);
@@ -257,7 +261,7 @@ public class SbomVisualizationWebService implements WebService {
     private boolean hasBranches(Request request, String projectKey, Gson gson) {
         try {
             String branchesJson = callLocal(request, "api/project_branches/list",
-                Map.of("project", projectKey), null);
+                Map.of(QUERY_PARAM_PROJECT, projectKey), null);
             JsonObject obj = gson.fromJson(branchesJson, JsonObject.class);
             return obj.has(ACTION_BRANCHES)
                 && obj.get(ACTION_BRANCHES).isJsonArray()
@@ -269,7 +273,7 @@ public class SbomVisualizationWebService implements WebService {
 
     private void addBranchParam(Map<String, String> params, String branch) {
         if (branch != null && !branch.isBlank()) {
-            params.put("branch", branch);
+            params.put(PARAM_BRANCH, branch);
         }
     }
 
@@ -282,7 +286,7 @@ public class SbomVisualizationWebService implements WebService {
             && sbom.getAsJsonArray(FIELD_COMPONENTS).size() > 0;
         boolean hasMetadataComponent = sbom.has(FIELD_METADATA)
             && sbom.get(FIELD_METADATA).isJsonObject()
-            && sbom.getAsJsonObject(FIELD_METADATA).has("component");
+            && sbom.getAsJsonObject(FIELD_METADATA).has(FIELD_COMPONENT);
         return hasComponents || hasMetadataComponent;
     }
 
@@ -329,7 +333,7 @@ public class SbomVisualizationWebService implements WebService {
     private Instant fetchLastAnalysisDate(Request request, String projectKey, String branch, Gson gson) {
         try {
             Map<String, String> params = new HashMap<>();
-            params.put("project", projectKey);
+            params.put(QUERY_PARAM_PROJECT, projectKey);
             params.put("ps", "1");
             addBranchParam(params, branch);
             String json = callLocal(request, "api/project_analyses/search", params, null);
@@ -467,7 +471,7 @@ public class SbomVisualizationWebService implements WebService {
     private String callLoopback(Request request, String path, Map<String, String> params, String accept) throws IOException {
         StringBuilder query = new StringBuilder();
         for (Map.Entry<String, String> entry : params.entrySet()) {
-            if (query.length() > 0) query.append('&');
+            if (!query.isEmpty()) query.append('&');
             query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
                 .append('=')
                 .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
