@@ -41,10 +41,8 @@ function settingMap(settings) {
 
 var _cdxSunshineAdminHandler = function (options) {
   const el = options.el;
-  const TOKEN_KEY          = 'cdxsunshine.sonar.token';
   const COMPONENT_LIMIT_KEY = 'cdxsunshine.largeGraph.componentLimit';
   const EDGE_LIMIT_KEY      = 'cdxsunshine.largeGraph.edgeLimit';
-  const TOKEN_KEY_LEGACY          = 'sbomviz.sonar.token';
   const COMPONENT_LIMIT_KEY_LEGACY = 'sbomviz.largeGraph.componentLimit';
   const EDGE_LIMIT_KEY_LEGACY      = 'sbomviz.largeGraph.edgeLimit';
   const DEFAULT_COMPONENT_LIMIT = 5000;
@@ -77,15 +75,6 @@ var _cdxSunshineAdminHandler = function (options) {
   el.innerHTML = [
     '<div class="sbomviz-admin">',
     '  <h2>SBOM Visualization — Settings <span style="font-size:12px;color:#888;font-weight:normal;">v${project.version}</span></h2>',
-    '  <p>Configure the SonarQube token used to fetch SBOM and dependency risk data for projects.</p>',
-    '  <div class="sbomviz-field">',
-    '    <label for="sbomviz-token-input">SonarQube Token</label>',
-    '    <input type="password" id="sbomviz-token-input" placeholder="Enter SonarQube token..." autocomplete="off">',
-    '    <div class="sbomviz-hint">',
-    '      The token must have permission to read project SBOM and SCA data.',
-    '      It is stored as a global SonarQube setting. Leave this field empty to keep the current token.',
-    '    </div>',
-    '  </div>',
     '  <h3>Large Project Mode</h3>',
     '  <div class="sbomviz-info">',
     '    The dependency chart is rendered as a sunburst. For very large dependency graphs, the chart library can exceed browser memory because dependency paths are expanded into chart nodes.',
@@ -110,7 +99,6 @@ var _cdxSunshineAdminHandler = function (options) {
     '</div>'
   ].join('\n');
 
-  const tokenInput = document.getElementById('sbomviz-token-input');
   const componentLimitInput = document.getElementById('sbomviz-component-limit-input');
   const edgeLimitInput = document.getElementById('sbomviz-edge-limit-input');
   const saveBtn = document.getElementById('sbomviz-save-btn');
@@ -158,20 +146,8 @@ var _cdxSunshineAdminHandler = function (options) {
     });
   }
 
-  // check token via plugin status endpoint (reads both cdxsunshine.* and legacy sbomviz.* from Configuration)
-  fetch(getBaseUrl() + '/api/cdxsunshine/status', {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-  })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      if (data.tokenConfigured) {
-        tokenInput.placeholder = '(token is set — enter a new value to replace)';
-      }
-    })
-    .catch(function () {});
-
   fetch(getBaseUrl() + '/api/settings/values?keys=' + [
-    TOKEN_KEY, COMPONENT_LIMIT_KEY, EDGE_LIMIT_KEY,
+    COMPONENT_LIMIT_KEY, EDGE_LIMIT_KEY,
     COMPONENT_LIMIT_KEY_LEGACY, EDGE_LIMIT_KEY_LEGACY,
     'sonar.core.serverBaseURL'
   ].map(encodeURIComponent).join(','), {
@@ -210,17 +186,9 @@ var _cdxSunshineAdminHandler = function (options) {
       setSetting(COMPONENT_LIMIT_KEY, componentLimit),
       setSetting(EDGE_LIMIT_KEY, edgeLimit)
     ];
-    const token = tokenInput.value.trim();
-    if (token) {
-      writes.push(setSetting(TOKEN_KEY, token));
-    }
 
     Promise.all(writes)
       .then(function () {
-        if (token) {
-          tokenInput.value = '';
-          tokenInput.placeholder = '(token is set — enter a new value to replace)';
-        }
         showMsg('Settings saved successfully.', 'success');
       })
       .catch(function (e) {
