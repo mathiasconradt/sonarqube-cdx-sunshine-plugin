@@ -20,18 +20,23 @@ package io.github.mathiasconradt.sbomviz;
 import com.google.gson.*;
 import org.sonar.api.config.Configuration;
 import org.sonar.api.server.ServerSide;
+import org.sonar.api.server.ws.LocalConnector;
 import org.sonar.api.server.ws.Request;
 import org.sonar.api.server.ws.Response;
 import org.sonar.api.server.ws.WebService;
 
 import java.io.*;
-import java.net.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -45,8 +50,12 @@ public class SbomVisualizationWebService implements WebService {
     private static final String APPLICATION_JSON = "application/json";
     private static final String ACTION_BRANCHES = "branches";
     private static final String FIELD_COMPONENTS = "components";
+    private static final String FIELD_COMPONENT = "component";
     private static final String FIELD_METADATA = "metadata";
     private static final String FIELD_VULNERABILITIES = "vulnerabilities";
+    private static final String PARAM_BRANCH = "branch";
+    private static final String QUERY_PARAM_PROJECT = "project";
+    private static final String QUERY_PARAM_COMPONENT = "component";
     private static final String NO_DEPENDENCY_SCAN_MESSAGE =
         "No dependency scan data is available for this project branch yet. Run an analysis with dependency scanning enabled, then refresh this page.";
     private static final String NOT_ANALYZED_MESSAGE =
@@ -82,7 +91,7 @@ public class SbomVisualizationWebService implements WebService {
         dataAction.createParam(PARAM_PROJECT_KEY)
             .setRequired(true)
             .setDescription("The SonarQube project key");
-        dataAction.createParam("branch")
+        dataAction.createParam(PARAM_BRANCH)
             .setRequired(false)
             .setDescription("Branch name (defaults to main branch)");
         dataAction.createParam("noCache")
@@ -97,37 +106,14 @@ public class SbomVisualizationWebService implements WebService {
             .setRequired(true)
             .setDescription("The SonarQube project key");
 
-        controller.createAction("status")
-            .setDescription("Returns plugin configuration status")
-            .setHandler(this::getStatus)
-            .setInternal(true);
-
         controller.done();
-    }
-
-    private void getStatus(Request request, Response response) throws IOException {
-        JsonObject status = new JsonObject();
-        status.addProperty("tokenConfigured", !resolvedToken().isEmpty());
-        response.stream().setMediaType(APPLICATION_JSON);
-        response.stream().output().write(new Gson().toJson(status).getBytes(StandardCharsets.UTF_8));
     }
 
     private void getBranches(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
-        String token = resolvedToken();
-
-        if (token.isEmpty()) {
-            writeJsonError(response, "SonarQube token not configured.");
-            return;
-        }
-
-        String baseUrl = baseUrl();
         try {
-            String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
-            String branchesJson = fetchUrl(
-                baseUrl + "/api/project_branches/list?project=" + encodedKey,
-                token, null
-            );
+            String branchesJson = callLocal(request, "api/project_branches/list",
+                Map.of(QUERY_PARAM_PROJECT, projectKey), null);
             response.stream().setMediaType(APPLICATION_JSON);
             response.stream().output().write(branchesJson.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
@@ -137,31 +123,19 @@ public class SbomVisualizationWebService implements WebService {
 
     private void getData(Request request, Response response) throws Exception {
         String projectKey = request.mandatoryParam(PARAM_PROJECT_KEY);
-        String branch = request.param("branch");
+        String branch = request.param(PARAM_BRANCH);
         boolean noCache = "true".equalsIgnoreCase(request.param("noCache"));
-        String token = resolvedToken();
 
-        if (token.isEmpty()) {
-            writeJsonError(response, "SonarQube token not configured. Please set it in Administration → Configuration → SBOM Visualization.");
-            return;
-        }
-
-        String baseUrl = baseUrl();
         Gson gson = new GsonBuilder().serializeNulls().create();
 
         try {
-            String encodedKey = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
-            String branchSuffix = (branch != null && !branch.isBlank())
-                ? "&branch=" + URLEncoder.encode(branch, StandardCharsets.UTF_8)
-                : "";
-
-            if ((branch == null || branch.isBlank()) && !hasBranches(baseUrl, encodedKey, token, gson)) {
+            if ((branch == null || branch.isBlank()) && !hasBranches(request, projectKey, gson)) {
                 writeUnavailable(response, NOT_ANALYZED_MESSAGE, null);
                 return;
             }
 
             // check last analysis date
-            Instant lastAnalysis = fetchLastAnalysisDate(baseUrl, encodedKey, branchSuffix, token, gson);
+            Instant lastAnalysis = fetchLastAnalysisDate(request, projectKey, branch, gson);
 
             // check cache (skip if noCache=true)
             Path cacheFile = cacheFile(projectKey, branch);
@@ -172,7 +146,7 @@ public class SbomVisualizationWebService implements WebService {
                 return;
             }
 
-            Optional<String> sbomJson = fetchSbomReport(baseUrl, encodedKey, branchSuffix, token);
+            Optional<String> sbomJson = fetchSbomReport(request, projectKey, branch);
             if (sbomJson.isEmpty()) {
                 writeUnavailable(response, NO_DEPENDENCY_SCAN_MESSAGE, lastAnalysis);
                 return;
@@ -184,7 +158,7 @@ public class SbomVisualizationWebService implements WebService {
                 return;
             }
 
-            JsonArray risks = fetchRisks(baseUrl, encodedKey, branchSuffix, token, gson);
+            JsonArray risks = fetchRisks(request, projectKey, branch, gson);
             JsonObject enriched = mergeRisksIntoSbom(sbom, risks);
 
             String generatedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
@@ -211,13 +185,13 @@ public class SbomVisualizationWebService implements WebService {
         }
     }
 
-    private Optional<String> fetchSbomReport(String baseUrl, String encodedKey, String branchSuffix,
-                                            String token) throws IOException {
+    private Optional<String> fetchSbomReport(Request request, String projectKey, String branch) throws IOException {
         try {
-            return Optional.of(fetchUrl(
-                baseUrl + "/api/v2/sca/sbom-reports?component=" + encodedKey + "&type=cyclonedx" + branchSuffix,
-                token, "application/vnd.cyclonedx+json"
-            ));
+            Map<String, String> params = new HashMap<>();
+            params.put(QUERY_PARAM_COMPONENT, projectKey);
+            params.put("type", "cyclonedx");
+            addBranchParam(params, branch);
+            return Optional.of(callLoopback(request, "api/v2/sca/sbom-reports", params, "application/vnd.cyclonedx+json"));
         } catch (IOException e) {
             if (isMissingScaData(e)) {
                 return Optional.empty();
@@ -251,12 +225,6 @@ public class SbomVisualizationWebService implements WebService {
         result.add(LARGE_GRAPH_LIMITS, limits);
     }
 
-    private String resolvedToken() {
-        String primary = configuration.get(SbomVisualizationPlugin.TOKEN_KEY).orElse("").trim();
-        if (!primary.isEmpty()) return primary;
-        return configuration.get(SbomVisualizationPlugin.TOKEN_KEY_LEGACY).orElse("").trim();
-    }
-
     private int configuredPositiveInt(String primaryKey, String fallbackKey, int defaultValue) {
         Optional<Integer> primary = configuration.getInt(primaryKey);
         if (primary.isPresent() && primary.get() > 0) return primary.get();
@@ -264,13 +232,12 @@ public class SbomVisualizationWebService implements WebService {
         return value > 0 ? value : defaultValue;
     }
 
-    private JsonArray fetchRisks(String baseUrl, String encodedKey, String branchSuffix,
-                                 String token, Gson gson) throws IOException {
+    private JsonArray fetchRisks(Request request, String projectKey, String branch, Gson gson) throws IOException {
         try {
-            String risksJson = fetchUrl(
-                baseUrl + "/api/v2/sca/risk-reports?component=" + encodedKey + branchSuffix,
-                token, null
-            );
+            Map<String, String> params = new HashMap<>();
+            params.put(QUERY_PARAM_COMPONENT, projectKey);
+            addBranchParam(params, branch);
+            String risksJson = callLoopback(request, "api/v2/sca/risk-reports", params, null);
             JsonElement risksEl = gson.fromJson(risksJson, JsonElement.class);
             if (risksEl == null || risksEl.isJsonNull()) {
                 return new JsonArray();
@@ -291,18 +258,22 @@ public class SbomVisualizationWebService implements WebService {
         }
     }
 
-    private boolean hasBranches(String baseUrl, String encodedKey, String token, Gson gson) {
+    private boolean hasBranches(Request request, String projectKey, Gson gson) {
         try {
-            String branchesJson = fetchUrl(
-                baseUrl + "/api/project_branches/list?project=" + encodedKey,
-                token, null
-            );
+            String branchesJson = callLocal(request, "api/project_branches/list",
+                Map.of(QUERY_PARAM_PROJECT, projectKey), null);
             JsonObject obj = gson.fromJson(branchesJson, JsonObject.class);
             return obj.has(ACTION_BRANCHES)
                 && obj.get(ACTION_BRANCHES).isJsonArray()
                 && obj.getAsJsonArray(ACTION_BRANCHES).size() > 0;
         } catch (Exception ignored) {
             return true;
+        }
+    }
+
+    private void addBranchParam(Map<String, String> params, String branch) {
+        if (branch != null && !branch.isBlank()) {
+            params.put(PARAM_BRANCH, branch);
         }
     }
 
@@ -315,7 +286,7 @@ public class SbomVisualizationWebService implements WebService {
             && sbom.getAsJsonArray(FIELD_COMPONENTS).size() > 0;
         boolean hasMetadataComponent = sbom.has(FIELD_METADATA)
             && sbom.get(FIELD_METADATA).isJsonObject()
-            && sbom.getAsJsonObject(FIELD_METADATA).has("component");
+            && sbom.getAsJsonObject(FIELD_METADATA).has(FIELD_COMPONENT);
         return hasComponents || hasMetadataComponent;
     }
 
@@ -359,14 +330,13 @@ public class SbomVisualizationWebService implements WebService {
         }
     }
 
-    private Instant fetchLastAnalysisDate(String baseUrl, String encodedKey, String branchSuffix,
-                                          String token, Gson gson) {
+    private Instant fetchLastAnalysisDate(Request request, String projectKey, String branch, Gson gson) {
         try {
-            // branchSuffix uses &branch=... but analyses API uses &branch=... too — strip leading &
-            String branchParam = branchSuffix.isEmpty() ? "" : branchSuffix; // already "&branch=..."
-            String url = baseUrl + "/api/project_analyses/search?project=" + encodedKey
-                + branchParam + "&ps=1";
-            String json = fetchUrl(url, token, null);
+            Map<String, String> params = new HashMap<>();
+            params.put(QUERY_PARAM_PROJECT, projectKey);
+            params.put("ps", "1");
+            addBranchParam(params, branch);
+            String json = callLocal(request, "api/project_analyses/search", params, null);
             JsonObject obj = gson.fromJson(json, JsonObject.class);
             if (obj.has("analyses")) {
                 JsonArray analyses = obj.getAsJsonArray("analyses");
@@ -403,12 +373,6 @@ public class SbomVisualizationWebService implements WebService {
         return cacheDir.resolve(safeName + ".json");
     }
 
-    private String baseUrl() {
-        int port = configuration.getInt("sonar.web.port").orElse(9000);
-        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
-        return "http://localhost:" + port + ctx;
-    }
-
     private void writeJsonError(Response response, String message) throws IOException {
         JsonObject err = new JsonObject();
         err.addProperty("error", message);
@@ -427,22 +391,107 @@ public class SbomVisualizationWebService implements WebService {
         response.stream().output().write(new Gson().toJson(unavailable).getBytes(StandardCharsets.UTF_8));
     }
 
-    private String fetchUrl(String urlStr, String token, String accept) throws IOException {
-        URL url = new URL(urlStr);
+    // in-process call via LocalConnector — propagates the caller's own session/permissions, no token
+    private String callLocal(Request request, String path, Map<String, String> params, String mediaType) throws IOException {
+        LocalConnector.LocalResponse resp = request.localConnector().call(
+            new SimpleLocalRequest(path, mediaType != null ? mediaType : APPLICATION_JSON, params));
+
+        int code = resp.getStatus();
+        if (code == 401) throw new IOException("Authentication failed (401) calling " + path + ".");
+        if (code == 403) throw new IOException("Access forbidden (403). You lack the required permissions for this project.");
+        if (code == 404) throw new IOException("Not found (404). Project may not have an SBOM. Ensure SCA is enabled and the project has been analyzed.");
+        if (code != 200) throw new IOException("HTTP " + code + " from SonarQube API at " + path);
+
+        return new String(resp.getBytes(), StandardCharsets.UTF_8);
+    }
+
+    private static final class SimpleLocalRequest implements LocalConnector.LocalRequest {
+        private final String path;
+        private final String mediaType;
+        private final Map<String, String> params;
+
+        SimpleLocalRequest(String path, String mediaType, Map<String, String> params) {
+            this.path = path;
+            this.mediaType = mediaType;
+            this.params = params;
+        }
+
+        @Override
+        public String getPath() {
+            return path;
+        }
+
+        @Override
+        public String getMediaType() {
+            return mediaType;
+        }
+
+        @Override
+        public String getMethod() {
+            return "GET";
+        }
+
+        @Override
+        public boolean hasParam(String key) {
+            return params.containsKey(key);
+        }
+
+        @Override
+        public String getParam(String key) {
+            return params.get(key);
+        }
+
+        @Override
+        public List<String> getMultiParam(String key) {
+            return params.containsKey(key) ? List.of(params.get(key)) : Collections.emptyList();
+        }
+
+        @Override
+        public Optional<String> getHeader(String name) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Map<String, String[]> getParameterMap() {
+            Map<String, String[]> map = new HashMap<>();
+            params.forEach((k, v) -> map.put(k, new String[]{v}));
+            return map;
+        }
+    }
+
+    private String baseUrl() {
+        int port = configuration.getInt("sonar.web.port").orElse(9000);
+        String ctx = configuration.get("sonar.web.context").orElse("").replaceAll("/$", "");
+        return "http://localhost:" + port + ctx;
+    }
+
+    // api/v2/* endpoints don't dispatch through LocalConnector (confirmed 404 — it only
+    // reaches classic v1 WebService actions), so these fall back to a loopback HTTP call —
+    // authenticated by forwarding the caller's own Cookie/Authorization header, not a token.
+    private String callLoopback(Request request, String path, Map<String, String> params, String accept) throws IOException {
+        StringBuilder query = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (!query.isEmpty()) query.append('&');
+            query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                .append('=')
+                .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+        }
+        URL url = new URL(baseUrl() + "/" + path + "?" + query);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(30_000);
         conn.setReadTimeout(120_000);
-        conn.setRequestProperty("Authorization", "Bearer " + token);
         conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        request.header("Cookie").ifPresent(v -> conn.setRequestProperty("Cookie", v));
+        request.header("Authorization").ifPresent(v -> conn.setRequestProperty("Authorization", v));
         if (accept != null) {
             conn.setRequestProperty("Accept", accept);
         }
 
         int code = conn.getResponseCode();
-        if (code == 401) throw new IOException("Authentication failed (401). Check your SonarQube token in plugin settings.");
-        if (code == 403) throw new IOException("Access forbidden (403). Token lacks required permissions.");
+        if (code == 401) throw new IOException("Authentication failed (401) calling " + path + ".");
+        if (code == 403) throw new IOException("Access forbidden (403). You lack the required permissions for this project.");
         if (code == 404) throw new IOException("Not found (404). Project may not have an SBOM. Ensure SCA is enabled and the project has been analyzed.");
-        if (code != 200) throw new IOException("HTTP " + code + " from SonarQube API at " + urlStr);
+        if (code != 200) throw new IOException("HTTP " + code + " from SonarQube API at " + path);
 
         try (InputStream is = conn.getInputStream();
              BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {

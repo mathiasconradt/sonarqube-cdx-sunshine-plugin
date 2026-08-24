@@ -25,12 +25,10 @@ public class SbomVisualizationPlugin implements Plugin {
     static final String SETTINGS_CATEGORY = "SBOM Visualization";
 
     // canonical keys (cdxsunshine.* — take priority)
-    static final String TOKEN_KEY          = "cdxsunshine.sonar.token";
     static final String COMPONENT_LIMIT_KEY = "cdxsunshine.largeGraph.componentLimit";
     static final String EDGE_LIMIT_KEY      = "cdxsunshine.largeGraph.edgeLimit";
 
     // legacy keys (sbomviz.* — kept for backward compatibility, read as fallback)
-    static final String TOKEN_KEY_LEGACY          = "sbomviz.sonar.token";
     static final String COMPONENT_LIMIT_KEY_LEGACY = "sbomviz.largeGraph.componentLimit";
     static final String EDGE_LIMIT_KEY_LEGACY      = "sbomviz.largeGraph.edgeLimit";
 
@@ -41,15 +39,6 @@ public class SbomVisualizationPlugin implements Plugin {
     public void define(Context context) {
         context.addExtensions(
             // canonical settings
-            PropertyDefinition.builder(TOKEN_KEY)
-                .name("SonarQube Token")
-                .description("Token with permission to read project SBOM and SCA data. " +
-                    "Stored as a global setting and used by the plugin to call the SonarQube SCA API on behalf of users.")
-                .category(SETTINGS_CATEGORY)
-                .subCategory("Authentication")
-                .index(1)
-                .type(PropertyType.PASSWORD)
-                .build(),
             PropertyDefinition.builder(COMPONENT_LIMIT_KEY)
                 .name("Component limit")
                 .description("Maximum number of unique SBOM components before the dependency sunburst chart is disabled and the project page switches to table-only mode. " +
