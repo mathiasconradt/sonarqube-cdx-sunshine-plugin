@@ -1,5 +1,8 @@
 # Custom
+.serena
 .DS_Store
+opencode_session_id
+codex_session_id
 claude_session_id
 sqs_plugin_dev.md
 .mcp.json
