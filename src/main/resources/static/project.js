@@ -260,7 +260,8 @@ var _cdxSunshineProjectHandler = function (options) {
   }
 
   // resolve authoritative base URL from sonar.core.serverBaseURL, then fetch branches
-  resolveBaseUrl().then(function () {
+  // void — resolveBaseUrl swallows its own errors and the branches fetch below ends with .catch
+  void resolveBaseUrl().then(function () {
   fetch(getBaseUrl() + '/api/cdxsunshine/branches?projectKey=' + encodeURIComponent(projectKey), {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
