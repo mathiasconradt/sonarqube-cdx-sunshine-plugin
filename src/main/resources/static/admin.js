@@ -50,31 +50,41 @@ var _cdxSunshineAdminHandler = function (options) {
 
   const style = document.createElement('style');
   style.textContent = [
+    /* theme palette — light by default, dark when SonarQube sets html[data-echoes-theme="dark"] */
+    '.sbomviz-admin { --sv-input-bg: #fff; --sv-input-border: #ccc; --sv-hint: #888;',
+    '  --sv-info-bg: #eef5ff; --sv-info-text: #1c538e; --sv-info-border: #cfe2ff;',
+    '  --sv-btn: #236a97; --sv-btn-hover: #1a5275;',
+    '  --sv-success-bg: #d4edda; --sv-success-text: #155724; --sv-error-bg: #f8d7da; --sv-error-text: #721c24; }',
+    'html[data-echoes-theme="dark"] .sbomviz-admin { --sv-input-bg: #1d212f; --sv-input-border: #637192; --sv-hint: #a6adc2;',
+    '  --sv-info-bg: rgba(143, 202, 234, .2); --sv-info-text: #8fcaea; --sv-info-border: rgba(143, 202, 234, .35);',
+    '  --sv-btn: #5d6cd0; --sv-btn-hover: #7482e0;',
+    '  --sv-success-bg: rgba(108, 211, 146, .2); --sv-success-text: #a6e9bd;',
+    '  --sv-error-bg: rgba(253, 162, 155, .2); --sv-error-text: #fda29b; }',
     '.sbomviz-admin { max-width: 600px; margin: 32px auto; padding: 0 32px; font-family: sans-serif; }',
     '.sbomviz-admin h2 { margin-bottom: 24px; }',
     '.sbomviz-admin h3 { margin: 28px 0 10px; font-size: 16px; }',
     '.sbomviz-admin label { display: block; font-weight: 600; margin-bottom: 6px; }',
     '.sbomviz-admin input[type=password], .sbomviz-admin input[type=text], .sbomviz-admin input[type=number] {',
-    '  width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;',
-    '  font-size: 14px; box-sizing: border-box; }',
+    '  width: 100%; padding: 8px 12px; border: 1px solid var(--sv-input-border); border-radius: 4px;',
+    '  font-size: 14px; box-sizing: border-box; background: var(--sv-input-bg); color: inherit; }',
     '.sbomviz-admin .sbomviz-field { margin-top: 16px; }',
-    '.sbomviz-admin .sbomviz-hint { font-size: 12px; color: #888; margin-top: 4px; }',
-    '.sbomviz-admin .sbomviz-info { background: #eef5ff; color: #1c538e;',
-    '  border: 1px solid #cfe2ff; border-radius: 4px; padding: 12px 14px;',
+    '.sbomviz-admin .sbomviz-hint { font-size: 12px; color: var(--sv-hint); margin-top: 4px; }',
+    '.sbomviz-admin .sbomviz-info { background: var(--sv-info-bg); color: var(--sv-info-text);',
+    '  border: 1px solid var(--sv-info-border); border-radius: 4px; padding: 12px 14px;',
     '  font-size: 13px; line-height: 1.45; margin-top: 10px; }',
     '.sbomviz-admin .sbomviz-btn {',
-    '  margin-top: 16px; padding: 8px 20px; background: #236a97; color: #fff;',
+    '  margin-top: 16px; padding: 8px 20px; background: var(--sv-btn); color: #fff;',
     '  border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }',
-    '.sbomviz-admin .sbomviz-btn:hover { background: #1a5275; }',
+    '.sbomviz-admin .sbomviz-btn:hover { background: var(--sv-btn-hover); }',
     '.sbomviz-admin .sbomviz-msg { margin-top: 12px; padding: 10px; border-radius: 4px; }',
-    '.sbomviz-admin .sbomviz-msg.success { background: #d4edda; color: #155724; }',
-    '.sbomviz-admin .sbomviz-msg.error { background: #f8d7da; color: #721c24; }'
+    '.sbomviz-admin .sbomviz-msg.success { background: var(--sv-success-bg); color: var(--sv-success-text); }',
+    '.sbomviz-admin .sbomviz-msg.error { background: var(--sv-error-bg); color: var(--sv-error-text); }'
   ].join('\n');
   document.head.appendChild(style);
 
   el.innerHTML = [
     '<div class="sbomviz-admin">',
-    '  <h2>SBOM Visualization — Settings <span style="font-size:12px;color:#888;font-weight:normal;">v${project.version}</span></h2>',
+    '  <h2>SBOM Visualization — Settings <span style="font-size:12px;color:var(--sv-hint);font-weight:normal;">v${project.version}</span></h2>',
     '  <h3>Large Project Mode</h3>',
     '  <div class="sbomviz-info">',
     '    The dependency chart is rendered as a sunburst. For very large dependency graphs, the chart library can exceed browser memory because dependency paths are expanded into chart nodes.',

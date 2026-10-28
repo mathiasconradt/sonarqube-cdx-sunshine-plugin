@@ -68,17 +68,40 @@ var _cdxSunshineProjectHandler = function (options) {
   function injectStyles() {
     injectedStyle = document.createElement('style');
     injectedStyle.textContent = [
+      /* theme palette — light by default, dark when SonarQube sets html[data-echoes-theme="dark"] */
+      '.sbomviz, .sbomviz-notice {',
+      '  --sv-panel: #fff; --sv-border: #ddd; --sv-title: #3e4357; --sv-muted: #666;',
+      '  --sv-hint: #888; --sv-faint: #999; --sv-th-bg: #f5f5f5; --sv-cell-border: #e0e0e0;',
+      '  --sv-row-alt: #fafafa; --sv-input-bg: #fff; --sv-input-border: #ccc;',
+      '  --sv-hover: #e8f0fe; --sv-btn-hover: #f0f0f0; --sv-primary: #1C538E;',
+      '  --sv-error-bg: #f8d7da; --sv-error-text: #721c24;',
+      '  --sv-empty-bg: #fff8e1; --sv-empty-text: #5f4500; --sv-empty-border: #ffe8a3;',
+      '  --sv-notice-bg: #d1ecf1; --sv-notice-text: #0c5460; --sv-license: #333;',
+      '  --sv-spinner: #ccc; --sv-spinner-top: #888;',
+      '  --sv-chart-border: #fff; --sv-tooltip-bg: #fff; --sv-tooltip-text: #666; }',
+      'html[data-echoes-theme="dark"] .sbomviz, html[data-echoes-theme="dark"] .sbomviz-notice {',
+      '  --sv-panel: #2a2f40; --sv-border: #3e4357; --sv-title: #e1e6f3; --sv-muted: #c5cddf;',
+      '  --sv-hint: #a6adc2; --sv-faint: #a6adc2; --sv-th-bg: #3e4357; --sv-cell-border: #3e4357;',
+      '  --sv-row-alt: #2f3446; --sv-input-bg: #1d212f; --sv-input-border: #637192;',
+      '  --sv-hover: #3e4357; --sv-btn-hover: #3e4357; --sv-primary: #5d6cd0;',
+      '  --sv-error-bg: rgba(253, 162, 155, .2); --sv-error-text: #fda29b;',
+      '  --sv-empty-bg: rgba(250, 220, 121, .15); --sv-empty-text: #fef5d0; --sv-empty-border: rgba(250, 220, 121, .35);',
+      '  --sv-notice-bg: rgba(143, 202, 234, .2); --sv-notice-text: #8fcaea; --sv-license: #c5cddf;',
+      '  --sv-spinner: #637192; --sv-spinner-top: #c5cddf;',
+      '  --sv-chart-border: #2a2f40; --sv-tooltip-bg: #1d212f; --sv-tooltip-text: #e1e6f3; }',
       /* layout — fills available height and scrolls vertically, no horizontal overflow */
       '.sbomviz { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
       '  box-sizing: border-box; width: 100%; overflow-x: hidden; }',
       '.sbomviz *, .sbomviz *::before, .sbomviz *::after { box-sizing: border-box; }',
-      '.sbomviz-section { background: #fff; border: 1px solid #ddd; border-radius: 4px;',
+      '.sbomviz-section { background: var(--sv-panel); border: 1px solid var(--sv-border); border-radius: 4px;',
       '  padding: 12px; margin-bottom: 16px; min-width: 0; }',
-      '.sbomviz-title { color: #3e4357; margin: 16px 0 8px; font-size: 1.1em; font-weight: 600; }',
-      '.sbomviz-loading { text-align: center; padding: 40px 0; color: #666; }',
-      '.sbomviz-error { background: #f8d7da; color: #721c24; border-radius: 4px; padding: 12px 16px; }',
-      '.sbomviz-empty { background: #fff8e1; color: #5f4500; border: 1px solid #ffe8a3;',
+      '.sbomviz-title { color: var(--sv-title); margin: 16px 0 8px; font-size: 1.1em; font-weight: 600; }',
+      '.sbomviz-loading { text-align: center; padding: 40px 0; color: var(--sv-muted); }',
+      '.sbomviz-error { background: var(--sv-error-bg); color: var(--sv-error-text); border-radius: 4px; padding: 12px 16px; }',
+      '.sbomviz-empty { background: var(--sv-empty-bg); color: var(--sv-empty-text); border: 1px solid var(--sv-empty-border);',
       '  border-radius: 4px; padding: 14px 18px; font-size: 14px; }',
+      '.sv-hint { font-size: 11px; color: var(--sv-hint); margin: 4px 0 8px; }',
+      '.sv-footer { font-size: 11px; color: var(--sv-faint); margin-top: 8px; }',
       /* chart — height relative to viewport so it fits without fixed overflow */
       '.sbomviz-chart { width: 100%; height: 60vh; min-height: 400px; }',
       /* table wrapper scrolls horizontally but outer section does not */
@@ -99,48 +122,49 @@ var _cdxSunshineProjectHandler = function (options) {
       '.sv-transitive { background: #9fc5e8; color: #333 !important; }',
       '.sv-direct    { background: #4a9eff; color: #fff; }',
       '.sv-clean    { background: #bcbcbc; color: #333 !important; }',
-      '.sv-license  { background: transparent; border: 1px solid #333; color: #333; }',
+      '.sv-license  { background: transparent; border: 1px solid var(--sv-license); color: var(--sv-license); }',
       '.sv-opaque   { opacity: 0.5; }',
       /* table */
       '.sbomviz-tbl { border-collapse: collapse; width: 100%; font-size: 13px; }',
-      '.sbomviz-tbl th { background: #f5f5f5; border: 1px solid #ddd; padding: 6px 8px;',
+      '.sbomviz-tbl th { background: var(--sv-th-bg); border: 1px solid var(--sv-border); padding: 6px 8px;',
       '  text-align: left; font-weight: 600; white-space: nowrap; }',
-      '.sbomviz-tbl td { border: 1px solid #e0e0e0; padding: 5px 8px; vertical-align: top; }',
-      '.sbomviz-tbl tr:nth-child(even) td { background: #fafafa; }',
+      '.sbomviz-tbl td { border: 1px solid var(--sv-cell-border); padding: 5px 8px; vertical-align: top; }',
+      '.sbomviz-tbl tr:nth-child(even) td { background: var(--sv-row-alt); }',
       /* search row */
-      '.sbomviz-tbl .sv-search-row th { background: #fff; }',
-      '.sbomviz-tbl .sv-search-row input { width: 100%; padding: 3px 6px; border: 1px solid #ccc;',
-      '  border-radius: 3px; font-size: 12px; box-sizing: border-box; }',
+      '.sbomviz-tbl .sv-search-row th { background: var(--sv-panel); }',
+      '.sbomviz-tbl .sv-search-row input { width: 100%; padding: 3px 6px; border: 1px solid var(--sv-input-border);',
+      '  border-radius: 3px; font-size: 12px; box-sizing: border-box; background: var(--sv-input-bg); color: inherit; }',
       /* summary counters */
       '.sv-summary-cnt { display: inline-block; margin-right: 8px; }',
       /* pagination */
       '.sv-page-ctrl { margin: 8px 0; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }',
-      '.sv-page-ctrl button { padding: 3px 10px; border: 1px solid #ccc; background: #fff;',
-      '  border-radius: 3px; cursor: pointer; font-size: 12px; }',
-      '.sv-page-ctrl button:hover { background: #e8f0fe; }',
-      '.sv-page-ctrl button.sv-active { background: #1C538E; color: #fff; border-color: #1C538E; }',
-      '.sv-page-ctrl .sv-page-info { font-size: 12px; color: #666; margin-left: 4px; }',
+      '.sv-page-ctrl button { padding: 3px 10px; border: 1px solid var(--sv-input-border); background: var(--sv-input-bg);',
+      '  color: inherit; border-radius: 3px; cursor: pointer; font-size: 12px; }',
+      '.sv-page-ctrl button:hover { background: var(--sv-hover); }',
+      '.sv-page-ctrl button:disabled { opacity: 0.5; cursor: default; }',
+      '.sv-page-ctrl button.sv-active { background: var(--sv-primary); color: #fff; border-color: var(--sv-primary); }',
+      '.sv-page-ctrl .sv-page-info { font-size: 12px; color: var(--sv-muted); margin-left: 4px; }',
       /* color legend */
       '.sv-legend { font-size: 12px; margin: 6px 0 12px; }',
       '.sv-legend span { margin-right: 14px; }',
       /* branch selector */
       '.sv-branch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }',
-      '.sv-branch-bar label { font-weight: 600; color: #3e4357; }',
-      '.sv-branch-bar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;',
-      '  font-size: 13px; background: #fff; cursor: pointer; }',
+      '.sv-branch-bar label { font-weight: 600; color: var(--sv-title); }',
+      '.sv-branch-bar select { padding: 4px 8px; border: 1px solid var(--sv-input-border); border-radius: 4px;',
+      '  font-size: 13px; background: var(--sv-input-bg); color: inherit; cursor: pointer; }',
       '.sv-refresh-btn { margin-left: auto; padding: 4px 12px; font-size: 12px; cursor: pointer;',
-      '  border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #3e4357; }',
-      '.sv-refresh-btn:hover { background: #f0f0f0; }',
+      '  border: 1px solid var(--sv-input-border); border-radius: 4px; background: var(--sv-input-bg); color: var(--sv-title); }',
+      '.sv-refresh-btn:hover { background: var(--sv-btn-hover); }',
       /* spinner */
       '.sv-spinner { display: inline-block; width: 13px; height: 13px; margin-left: 8px;',
-      '  border: 2px solid #ccc; border-top-color: #888; border-radius: 50%;',
+      '  border: 2px solid var(--sv-spinner); border-top-color: var(--sv-spinner-top); border-radius: 50%;',
       '  animation: sv-spin 0.8s linear infinite; vertical-align: middle; }',
       '@keyframes sv-spin { to { transform: rotate(360deg); } }',
       /* chart section header row: legend left, timestamp right */
       '.sv-chart-header { display: flex; align-items: center; justify-content: space-between;',
       '  flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }',
-      '.sv-generated-at { font-size: 11px; color: #999; white-space: nowrap; }',
-      '.sbomviz-notice { background: #d1ecf1; color: #0c5460; border-radius: 4px;',
+      '.sv-generated-at { font-size: 11px; color: var(--sv-faint); white-space: nowrap; }',
+      '.sbomviz-notice { background: var(--sv-notice-bg); color: var(--sv-notice-text); border-radius: 4px;',
       '  padding: 14px 18px; font-size: 14px; margin: 16px; }'
     ].join('\n');
     document.head.appendChild(injectedStyle);
@@ -157,6 +181,10 @@ var _cdxSunshineProjectHandler = function (options) {
       '</div>';
     return function () { el.innerHTML = ''; if (injectedStyle) injectedStyle.remove(); };
   }
+
+  // CSS follows the theme on its own; echarts colors must be re-applied when the user switches theme
+  const themeObserver = new MutationObserver(applyChartTheme);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-echoes-theme'] });
 
   // make the extension container itself scroll vertically and not overflow horizontally
   el.style.overflowY = 'auto';
@@ -312,6 +340,8 @@ var _cdxSunshineProjectHandler = function (options) {
     // S7762 — use .remove() instead of parentNode.removeChild()
     // S6582 — use optional chaining
     injectedStyle?.remove();
+    themeObserver.disconnect();
+    activeCharts.clear();
   };
 };
 window.registerExtension('cdxsunshine/project', _cdxSunshineProjectHandler);
@@ -969,14 +999,35 @@ function renderVirtualTable(id, rows) {
 
 // ─── renderer ────────────────────────────────────────────────────────────────
 
+// charts of the current render, re-themed when SonarQube switches between light and dark mode
+const activeCharts = new Set();
+
+// theme colors come from the --sv-* CSS variables so CSS stays the single source of truth
+function chartThemeOpts(dom) {
+  const css = getComputedStyle(dom);
+  function cssVar(name) { return css.getPropertyValue(name).trim(); }
+  return {
+    tooltip: { backgroundColor: cssVar('--sv-tooltip-bg'), textStyle: { color: cssVar('--sv-tooltip-text') } },
+    series: [{ itemStyle: { borderColor: cssVar('--sv-chart-border') } }]
+  };
+}
+
+function applyChartTheme() {
+  activeCharts.forEach(function (chart) {
+    if (!chart.isDisposed()) chart.setOption(chartThemeOpts(chart.getDom()));
+  });
+}
+
 // S7721 — defined at module scope so it is not recreated on every renderSunshine call
-function chartOpts(data) {
+function chartOpts(data, dom) {
+  const theme = chartThemeOpts(dom);
   return {
     animation: false,
-    tooltip: { formatter: function (p) { return p.name; } },
+    tooltip: { ...theme.tooltip, formatter: function (p) { return p.name; } },
     series: {
       radius: ['15%', '100%'], type: 'sunburst', sort: undefined,
       emphasis: { focus: 'ancestor' }, data: data,
+      itemStyle: theme.series[0].itemStyle,
       label: { rotate: 'radial', show: false }, levels: []
     }
   };
@@ -1082,7 +1133,7 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       '    <label><input type="radio" name="sbomvizChart" value="all" checked> Show all components</label>',
       '    <label><input type="radio" name="sbomvizChart" value="vuln"> Show only vulnerable components</label>',
       '  </div>',
-      '  <p style="font-size:11px;color:#888;margin:4px 0 8px;">',
+      '  <p class="sv-hint">',
       '    Click a segment to drill into its dependencies. The dark blue center circle that appears marks your current focus — click it to go back up.',
       '  </p>',
       '  <div id="sbomviz-chart-all" class="sbomviz-chart"></div>',
@@ -1104,7 +1155,7 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     '<h3 class="sbomviz-title">Vulnerabilities (' + vulnKeys.length + ')</h3>',
     '<div class="sbomviz-section">' + vulnTableHtml + '</div>',
 
-    '<p style="font-size:11px;color:#999;margin-top:8px">',
+    '<p class="sv-footer">',
     '  Powered by <a href="https://github.com/CycloneDX/Sunshine/" target="_blank">CycloneDX Sunshine</a>',
     '  &mdash; Made by Luca Capacci &amp; Mattia Fierro',
     '</p>',
@@ -1115,8 +1166,11 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
     // init charts
     // S7764 — use globalThis.echarts over window.echarts (window.registerExtension stays as-is)
     const ec = globalThis.echarts;
-    const chartAll  = ec.init(document.getElementById('sbomviz-chart-all'));
-    chartAll.setOption(chartOpts(echartsAll));
+    activeCharts.clear();
+    const chartAllDom = document.getElementById('sbomviz-chart-all');
+    const chartAll  = ec.init(chartAllDom);
+    chartAll.setOption(chartOpts(echartsAll, chartAllDom));
+    activeCharts.add(chartAll);
 
     let chartVuln = null;
     function ensureVulnChart() {
@@ -1126,8 +1180,10 @@ function renderSunshine(el, sbomData, projectName, generatedAt, lastAnalysisDate
       }
       const vulnCopy = vulnOnlyComponents(components);
       const echartsVuln = buildEchartsData(vulnCopy);
-      chartVuln = ec.init(document.getElementById('sbomviz-chart-vuln'));
-      chartVuln.setOption(chartOpts(echartsVuln));
+      const chartVulnDom = document.getElementById('sbomviz-chart-vuln');
+      chartVuln = ec.init(chartVulnDom);
+      chartVuln.setOption(chartOpts(echartsVuln, chartVulnDom));
+      activeCharts.add(chartVuln);
       chartVuln.resize();
     }
 
